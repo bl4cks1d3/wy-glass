@@ -59,6 +59,9 @@
     <TextView style="@style/SettingsLabel" android:text="Modelo (vazio = padrão do provedor)" android:layout_marginTop="12dp" />
     <EditText android:id="@+id/modelInput" style="@style/SettingsInput" />
 
+    <TextView android:id="@+id/tavilyKeyLabel" style="@style/SettingsLabel" android:text="Chave Tavily (busca — só usada com Groq, opcional)" android:layout_marginTop="12dp" android:visibility="gone" />
+    <EditText android:id="@+id/tavilyKeyInput" style="@style/SettingsInput" android:inputType="textPassword" android:visibility="gone" />
+
     <TextView android:id="@+id/ollamaHostLabel" style="@style/SettingsLabel" android:text="IP do PC rodando o Ollama" android:layout_marginTop="12dp" android:visibility="gone" />
     <EditText android:id="@+id/ollamaHostInput" style="@style/SettingsInput" android:hint="ex: 192.168.0.10" android:visibility="gone" />
 

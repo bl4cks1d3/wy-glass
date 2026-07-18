@@ -40,6 +40,10 @@ class BleBridgeService : Service() {
         private const val NOTIFICATION_ID = 1
         private const val DEFAULT_SYSTEM_PROMPT =
             "Voce e Wy Glass, um assistente de voz util, direto e simpatico. Responda sempre em portugues do Brasil, de forma breve (1-3 frases)."
+        // Same window as the PC side's server.py (MULTI_CLICK_WINDOW) — raised from an
+        // initially-tighter value there after live testing showed real double-clicks landing
+        // ~780ms apart; kept in sync here since it's the same physical hardware/buttons.
+        private const val MULTI_CLICK_WINDOW_MS = 800L
     }
 
     interface Listener {
@@ -58,10 +62,14 @@ class BleBridgeService : Service() {
     private lateinit var wakeWordListener: WakeWordListener
     private val conversationActive = AtomicBoolean(false)
     private var connected = false
+    private var button1ClickCount = 0
+    private var button2ClickCount = 0
+    private val clickRunnables = HashMap<Int, Runnable>()
 
     var deviceAddress: String = ""
     var serverUrl: String = ""
     var apiKey: String = ""
+    var tavilyApiKey: String = ""
     var aiProvider: AiProvider = AiProvider.GEMINI
     var aiModel: String = ""
     var ollamaHost: String = ""
@@ -150,6 +158,8 @@ class BleBridgeService : Service() {
     @Suppress("MissingPermission")
     fun disconnect() {
         conversationActive.set(false)
+        clickRunnables.values.forEach { mainHandler.removeCallbacks(it) }
+        clickRunnables.clear()
         wakeWordListener.stop()
         jarvis.releaseBtScoRoute()
         gatt?.disconnect()
@@ -219,7 +229,7 @@ class BleBridgeService : Service() {
                 // the recognizer that just detected the wake word may have stolen/dropped the
                 // SCO link — force the first turn to re-handshake instead of assuming it held
                 jarvis.invalidateBtScoRoute()
-                startConversation()
+                startConversation(loop = true)
             }
         }
     }
@@ -241,10 +251,31 @@ class BleBridgeService : Service() {
             return
         }
         log("CLIQUE botao$button ($hex)")
-        when (button) {
-            1 -> onButton1()
-            2 -> onButton2()
+        registerClick(button)
+    }
+
+    /**
+     * Groups rapid clicks of the same button into a single/double gesture, mirroring the PC
+     * side's dispatch_multiclick — a raw BLE notification arrives per physical press, so a
+     * "double click" is really two notifications close together that need debouncing into one
+     * logical event. Without this every press acted immediately as a single click and a real
+     * double-click was never possible (the reported bug).
+     */
+    private fun registerClick(button: Int) {
+        clickRunnables[button]?.let { mainHandler.removeCallbacks(it) }
+        if (button == 1) button1ClickCount++ else button2ClickCount++
+        val runnable = Runnable {
+            val count = if (button == 1) button1ClickCount else button2ClickCount
+            if (button == 1) button1ClickCount = 0 else button2ClickCount = 0
+            clickRunnables.remove(button)
+            when (count) {
+                1 -> if (button == 1) onButton1Single() else onButton2Single()
+                2 -> if (button == 1) onButton1Double() else onButton2Double()
+                else -> log("botao$button: $count cliques seguidos, ignorado (ambiguo)")
+            }
         }
+        clickRunnables[button] = runnable
+        mainHandler.postDelayed(runnable, MULTI_CLICK_WINDOW_MS)
     }
 
     private fun classifyButton(b: ByteArray): Int? {
@@ -256,15 +287,25 @@ class BleBridgeService : Service() {
         return null
     }
 
-    private fun onButton1() {
+    /** Clique simples botao1: um turno so (grava -> responde -> encerra), sem loop. */
+    private fun onButton1Single() {
         if (apiKey.isNotBlank() || aiProvider == AiProvider.OLLAMA) {
-            startConversation()
+            startConversation(loop = false)
         } else {
             forwardClick(1)
         }
     }
 
-    private fun onButton2() {
+    /** Clique duplo botao1: conversa continua (grava -> responde -> grava... ate botao2). */
+    private fun onButton1Double() {
+        if (apiKey.isNotBlank() || aiProvider == AiProvider.OLLAMA) {
+            startConversation(loop = true)
+        } else {
+            forwardClick(1)
+        }
+    }
+
+    private fun onButton2Single() {
         if (conversationActive.get()) {
             conversationActive.set(false)
             log("encerrando conversa...")
@@ -273,7 +314,15 @@ class BleBridgeService : Service() {
         }
     }
 
-    private fun startConversation() {
+    /** Clique duplo botao2: abre a tela de configuracoes (equivalente ao dashboard do PC). */
+    private fun onButton2Double() {
+        log("abrindo configuracoes...")
+        val intent = Intent(this, SettingsActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
+    private fun startConversation(loop: Boolean) {
         if (!conversationActive.compareAndSet(false, true)) {
             return // ja em andamento
         }
@@ -281,15 +330,15 @@ class BleBridgeService : Service() {
         mode("conversando")
         val config = providerConfig()
         jarvisExecutor.execute {
-            log("conversa iniciada (${config.provider.label})")
-            while (conversationActive.get()) {
+            log("conversa iniciada (${config.provider.label}${if (loop) ", continua" else ""})")
+            do {
                 try {
-                    jarvis.runTurn(config, systemPrompt) { line -> log(line) }
+                    jarvis.runTurn(config, systemPrompt, tavilyApiKey) { line -> log(line) }
                 } catch (e: Exception) {
                     log("erro no turno: ${e.message}")
                     break
                 }
-            }
+            } while (loop && conversationActive.get())
             conversationActive.set(false)
             log("conversa encerrada")
             mode(if (connected) "idle" else "idle")

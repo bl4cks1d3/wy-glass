@@ -15,7 +15,7 @@ Descobertos conectando diretamente do PC via [`bleak`](https://github.com/hbldh/
 Outros serviços vendor encontrados na descoberta GATT, não utilizados neste projeto:
 
 - `cc353442-be58-4ea2-876e-11d8d6976366` (characteristic única `c551c36a-...`, read/write/notify) — propósito não investigado.
-- `0000ae00-0000-1000-8000-00805f9b34fb` (`ae01` write / `ae02` notify) — segundo canal de controle, propósito não investigado (possivelmente OTA de firmware ou controle de câmera).
+- `0000ae00-0000-1000-8000-00805f9b34fb` (`ae01` write / `ae02` notify) — segundo canal de controle, propósito não investigado (possivelmente OTA de firmware; controle de câmera descartado, esta unidade não tem câmera).
 
 ## 2.2 Formato geral dos pacotes
 

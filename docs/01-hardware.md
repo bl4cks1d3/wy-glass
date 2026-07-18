@@ -9,7 +9,7 @@
 | Versão de firmware (desta unidade) | `0.2.6` |
 | Peso | ~38g |
 | Bateria | Standby o dia todo, poucas horas de uso contínuo |
-| Câmera | Sensor HD, POV (não explorada neste projeto) |
+| Câmera | Não tem — só lanterna (o manual do fabricante menciona uma função de gravação, mas esta unidade não tem sensor de câmera) |
 | Áudio | Alto-falante open-ear + microfone |
 | Lentes | Proteção UV/luz azul |
 | Bluetooth | 5.3, dual-mode (BLE + clássico) |
@@ -40,7 +40,7 @@ Extraída do manual de instruções oficial (imagem hospedada em `download.micro
 | Atender / encerrar chamada | Clique |
 | Próxima música | Clique duplo |
 | **Despertar assistente de IA** | **Clique (simples)** |
-| Gravação (foto/vídeo via câmera) | Segurar 2 segundos |
+| Gravação (foto/vídeo via câmera) — do manual, não se aplica (sem câmera nesta unidade) | Segurar 2 segundos |
 
 ### Botão de Trás
 

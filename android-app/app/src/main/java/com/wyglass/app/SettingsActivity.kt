@@ -32,6 +32,8 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
     private lateinit var apiKeyLabel: TextView
     private lateinit var apiKeyInput: EditText
     private lateinit var modelInput: EditText
+    private lateinit var tavilyKeyLabel: TextView
+    private lateinit var tavilyKeyInput: EditText
     private lateinit var ollamaHostLabel: TextView
     private lateinit var ollamaHostInput: EditText
     private lateinit var serverUrlInput: EditText
@@ -66,6 +68,8 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
         apiKeyLabel = findViewById(R.id.apiKeyLabel)
         apiKeyInput = findViewById(R.id.apiKeyInput)
         modelInput = findViewById(R.id.modelInput)
+        tavilyKeyLabel = findViewById(R.id.tavilyKeyLabel)
+        tavilyKeyInput = findViewById(R.id.tavilyKeyInput)
         ollamaHostLabel = findViewById(R.id.ollamaHostLabel)
         ollamaHostInput = findViewById(R.id.ollamaHostInput)
         serverUrlInput = findViewById(R.id.serverUrlInput)
@@ -92,6 +96,7 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
         providerSpinner.setSelection(AiProvider.entries.indexOf(savedProvider))
         apiKeyInput.setText(prefs.getString("api_key", ""))
         modelInput.setText(prefs.getString("ai_model", ""))
+        tavilyKeyInput.setText(prefs.getString("tavily_api_key", ""))
         ollamaHostInput.setText(prefs.getString("ollama_host", ""))
         serverUrlInput.setText(prefs.getString("server_url", ""))
         wakeWordSwitch.isChecked = prefs.getBoolean("wake_word_enabled", false)
@@ -124,6 +129,11 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
         apiKeyLabel.visibility = if (provider.needsHost) View.GONE else View.VISIBLE
         apiKeyInput.visibility = if (provider.needsHost) View.GONE else View.VISIBLE
         modelInput.hint = provider.defaultModel
+        // Tavily only matters for Groq — it's the only provider with reliable tool calling
+        // (see AiProvider.kt), so it's the only one whose "search" tool can use it.
+        val tavilyVisibility = if (provider == AiProvider.GROQ) View.VISIBLE else View.GONE
+        tavilyKeyLabel.visibility = tavilyVisibility
+        tavilyKeyInput.visibility = tavilyVisibility
     }
 
     private fun saveAndConnect() {
@@ -131,6 +141,7 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
         val provider = AiProvider.entries[providerSpinner.selectedItemPosition]
         val apiKey = apiKeyInput.text.toString().trim()
         val model = modelInput.text.toString().trim()
+        val tavilyApiKey = tavilyKeyInput.text.toString().trim()
         val ollamaHost = ollamaHostInput.text.toString().trim()
         val serverUrl = serverUrlInput.text.toString().trim().trimEnd('/')
         val wakeWordEnabled = wakeWordSwitch.isChecked
@@ -143,6 +154,7 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
             .putString("ai_provider", provider.id)
             .putString("api_key", apiKey)
             .putString("ai_model", model)
+            .putString("tavily_api_key", tavilyApiKey)
             .putString("ollama_host", ollamaHost)
             .putString("server_url", serverUrl)
             .putBoolean("wake_word_enabled", wakeWordEnabled)
@@ -155,6 +167,7 @@ class SettingsActivity : AppCompatActivity(), BleBridgeService.Listener {
         service?.aiProvider = provider
         service?.apiKey = apiKey
         service?.aiModel = model
+        service?.tavilyApiKey = tavilyApiKey
         service?.ollamaHost = ollamaHost
         service?.serverUrl = serverUrl
         service?.wakeWordEnabled = wakeWordEnabled

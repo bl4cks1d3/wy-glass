@@ -11,11 +11,19 @@ import uvicorn
 
 from bleak import BleakClient, BleakScanner
 import actions
+# audio_capture/passive_listener import sounddevice, which touches COM/WinRT on import
+# (PortAudio's Windows device enumeration) — importing them at module load time, before
+# bleak's WinRT scanner gets to assert its own MTA apartment, breaks bleak with
+# "Thread is configured for Windows GUI but callbacks are not working". Import lazily,
+# after BLE has already connected once, same pattern already used for `jarvis` elsewhere
+# in this codebase for the analogous onnxruntime/DLL conflict.
 
 BASE_DIR = Path(__file__).parent
 CONFIG_PATH = BASE_DIR / "config.json"
 
-MULTI_CLICK_WINDOW = 0.45   # seconds to wait for additional clicks of the same button
+MULTI_CLICK_WINDOW = 0.8   # seconds to wait for additional clicks of the same button
+                            # (raised from 0.45s — live testing showed a real double-click on
+                            # the physical button landing ~780ms apart, with margin to spare)
 
 
 def load_config():
@@ -52,6 +60,16 @@ state = State()
 app = FastAPI()
 
 
+def _passive_listener():
+    import passive_listener
+    return passive_listener
+
+
+def _audio_capture():
+    import audio_capture
+    return audio_capture
+
+
 def ts():
     return datetime.now().strftime("%H:%M:%S.%f")[:-3]
 
@@ -67,8 +85,13 @@ async def broadcast(payload: dict):
 
 
 async def run_action_async(action_type: str, params: dict) -> str:
+    # Credentials (Groq/Tavily/Gemini keys) are glasses-wide capabilities, not
+    # tied to any one gesture — merged in here so every action sees them
+    # without each gesture having to repeat the same key in its own params.
+    # A gesture's own params still win on collision (explicit override).
+    merged = {**state.config.get("credentials", {}), **params}
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, actions.run_action, action_type, params)
+    return await loop.run_in_executor(None, actions.run_action, action_type, merged)
 
 
 async def stop_conversation(gesture_key: str, raw_hex: str):
@@ -99,13 +122,17 @@ async def stop_conversation(gesture_key: str, raw_hex: str):
 async def conversation_loop(gesture_key: str, gcfg: dict):
     state.conversation_active = True
     await broadcast({"type": "conversation", "status": "started"})
-    while state.conversation_active:
-        try:
-            result = await run_action_async(gcfg["action"], gcfg.get("params", {}))
-            await broadcast({"type": "action_result", "gesture": gesture_key, "ok": True, "message": result, "time": ts()})
-        except Exception as e:
-            await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False, "message": str(e), "time": ts()})
-            break
+    _passive_listener().pause()  # don't let wake word / clap detection compete for the mic
+    try:
+        while state.conversation_active:
+            try:
+                result = await run_action_async(gcfg["action"], gcfg.get("params", {}))
+                await broadcast({"type": "action_result", "gesture": gesture_key, "ok": True, "message": result, "time": ts()})
+            except Exception as e:
+                await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False, "message": str(e), "time": ts()})
+                break
+    finally:
+        _passive_listener().resume()
     state.conversation_active = False
     await broadcast({"type": "conversation", "status": "ended"})
 
@@ -135,11 +162,14 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
         state.conversation_task = asyncio.create_task(conversation_loop(gesture_key, gcfg))
         return
 
+    _passive_listener().pause()
     try:
         result = await run_action_async(gcfg["action"], gcfg.get("params", {}))
         await broadcast({"type": "action_result", "gesture": gesture_key, "ok": True, "message": result, "time": ts()})
     except Exception as e:
         await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False, "message": str(e), "time": ts()})
+    finally:
+        _passive_listener().resume()
 
 
 async def dispatch_multiclick(button_key: str, loop):
@@ -182,6 +212,12 @@ def notification_handler(loop: asyncio.AbstractEventLoop):
     return handler
 
 
+def _on_passive_trigger(loop, gesture_key: str, note: str):
+    asyncio.run_coroutine_threadsafe(
+        fire_gesture(gesture_key, raw_hex="(escuta passiva)", note=note), loop
+    )
+
+
 async def ble_manager():
     loop = asyncio.get_event_loop()
     while True:
@@ -198,6 +234,13 @@ async def ble_manager():
                 state.connected = True
                 state.connected_at = time.monotonic()
                 await broadcast({"type": "status", "connected": True, "message": "conectado"})
+
+                # Started only after BLE's first successful WinRT/MTA init, not at process
+                # startup — sd.InputStream's own thread racing bleak's WinRT scanner during
+                # startup was breaking bleak with "Thread is configured for Windows GUI but
+                # callbacks are not working" (COM apartment conflict). start() is idempotent,
+                # so this is a no-op on reconnects.
+                _passive_listener().start(lambda: state.config, lambda gk, note: _on_passive_trigger(loop, gk, note))
 
                 await client.start_notify(state.config["notify_char_uuid"], notification_handler(loop))
                 await disconnected.wait()
@@ -217,6 +260,17 @@ async def ble_manager():
 @app.on_event("startup")
 async def startup():
     asyncio.create_task(ble_manager())
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    _passive_listener().stop()
+    _audio_capture().get_capture_manager().stop()
+    try:
+        import browser_tools
+        browser_tools.close()
+    except ImportError:
+        pass
 
 
 @app.get("/", response_class=HTMLResponse)

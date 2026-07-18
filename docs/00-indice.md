@@ -14,9 +14,11 @@ Documentação técnica completa do projeto Wy Glass: óculos inteligentes gené
 8. [Glossário](08-glossario.md) — termos técnicos usados ao longo do estudo
 9. [Pesquisa de features](09-pesquisa-features.md) — o que o mercado faz, o que vale a pena construir a seguir, priorizado
 10. [App Android (base)](10-app-android.md) — ponte BLE genérica pro celular, conectando ao mesmo servidor
+11. [Agente inteligente unificado (ex-Open Jarvis)](11-open-jarvis.md) — busca, navegador e visão de tela via Groq/Tavily/wttr.in, tudo dentro do próprio processo do Wy Glass
+12. [Guia de uso](12-guia-de-uso.md) — como usar no dia a dia (botões, comandos de voz, dashboard, configuração)
 
 ## Resumo executivo
 
-O Microwear W AI 4 é um óculos inteligente genérico chinês (câmera + áudio open-ear, sem tela) vendido sob a marca "MActive Pro". O app oficial depende de nuvem chinesa e não atende bem português. Em vez de usar o app, conectamos direto via Bluetooth Low Energy (BLE) no protocolo proprietário do dispositivo, decodificamos os comandos do botão físico, e construímos nossa própria stack (Python + FastAPI) que substitui o app por completo — incluindo um assistente de voz (Gemini + Piper TTS) acionado pelo botão físico.
+O Microwear W AI 4 é um óculos inteligente genérico chinês (lanterna + áudio open-ear, sem câmera, sem tela) vendido sob a marca "MActive Pro". O app oficial depende de nuvem chinesa e não atende bem português. Em vez de usar o app, conectamos direto via Bluetooth Low Energy (BLE) no protocolo proprietário do dispositivo, decodificamos os comandos do botão físico, e construímos nossa própria stack (Python + FastAPI) que substitui o app por completo — incluindo um assistente de voz (Gemini + Piper TTS) acionado pelo botão físico.
 
 Ver [01-hardware.md](01-hardware.md) para começar.

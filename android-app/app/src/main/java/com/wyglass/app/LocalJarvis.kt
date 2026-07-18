@@ -202,7 +202,7 @@ class LocalJarvis(private val context: Context) {
      * every other provider (Groq, OpenRouter, Mistral, Ollama) only accepts text, so those go
      * through on-device speech-to-text first (see Transcriber).
      */
-    fun runTurn(config: ProviderConfig, systemPrompt: String, log: (String) -> Unit): String {
+    fun runTurn(config: ProviderConfig, systemPrompt: String, tavilyApiKey: String = "", log: (String) -> Unit): String {
         val reply: String
         if (config.provider == AiProvider.GEMINI) {
             log("ouvindo...")
@@ -217,11 +217,131 @@ class LocalJarvis(private val context: Context) {
             if (userText.isBlank()) throw RuntimeException("nao entendi o que voce disse")
             log("voce: \"$userText\"")
             log("perguntando (${config.provider.label})...")
-            reply = askChatProvider(config, systemPrompt, userText)
+            // Only Groq's openai/gpt-oss-20b gets tool calling — every other provider tested
+            // either doesn't support it well or, in Llama's case, actively breaks (see
+            // AiProvider.kt). Everyone else falls back to a plain chat completion.
+            reply = if (config.provider == AiProvider.GROQ) {
+                askGroqWithTools(config.apiKey, config.model, systemPrompt, userText, tavilyApiKey, log)
+            } else {
+                askChatProvider(config, systemPrompt, userText)
+            }
         }
         log("resposta: \"$reply\"")
         speakBlocking(reply)
         return reply
+    }
+
+    /**
+     * Kotlin port of the PC side's smart_agent.py process_turn(): first call with tools, and
+     * if the model picks one, execute it and either speak the raw result directly (when it's
+     * already-speakable live data — see AgentTools.SearchResult.liveData) or do a second,
+     * tools-less call to turn the raw tool result into a natural-language reply.
+     */
+    private fun askGroqWithTools(apiKey: String, model: String, systemPrompt: String, userText: String, tavilyApiKey: String, log: (String) -> Unit): String {
+        val tools = JSONArray()
+            .put(JSONObject().apply {
+                put("type", "function")
+                put("function", JSONObject().apply {
+                    put("name", "search")
+                    put("description", "Busca informacao na internet: clima, cambio, cripto, feriados, ou busca geral.")
+                    put("parameters", JSONObject().apply {
+                        put("type", "object")
+                        put("properties", JSONObject().put("query", JSONObject().put("type", "string")))
+                        put("required", JSONArray().put("query"))
+                    })
+                })
+            })
+            .put(JSONObject().apply {
+                put("type", "function")
+                put("function", JSONObject().apply {
+                    put("name", "open_url")
+                    put("description", "Abre uma pagina no navegador do celular.")
+                    put("parameters", JSONObject().apply {
+                        put("type", "object")
+                        put("properties", JSONObject().put("url", JSONObject().put("type", "string")))
+                        put("required", JSONArray().put("url"))
+                    })
+                })
+            })
+
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(JSONObject().put("role", "user").put("content", userText))
+
+        val first = groqChatCompletion(apiKey, model, messages, tools)
+        val toolCalls = first.optJSONArray("tool_calls")
+        if (toolCalls == null || toolCalls.length() == 0) {
+            return first.optString("content", "").trim()
+        }
+
+        val leadIn = (first.opt("content") as? String) ?: ""
+        var lastResult = ""
+        var liveData = false
+        val followUp = JSONArray(messages.toString())
+        followUp.put(JSONObject().apply {
+            put("role", "assistant")
+            put("content", (first.opt("content") as? String) ?: JSONObject.NULL)
+            put("tool_calls", toolCalls)
+        })
+        for (i in 0 until toolCalls.length()) {
+            val call = toolCalls.getJSONObject(i)
+            val fn = call.getJSONObject("function")
+            val name = fn.getString("name")
+            val args = try { JSONObject(fn.optString("arguments", "{}")) } catch (e: Exception) { JSONObject() }
+            log("ferramenta: $name(${args})")
+            val result = when (name) {
+                "search" -> {
+                    val r = AgentTools.search(args.optString("query", ""), tavilyApiKey)
+                    liveData = r.liveData
+                    r.content
+                }
+                "open_url" -> AgentTools.openUrl(context, args.optString("url", ""))
+                else -> "ferramenta desconhecida: $name"
+            }
+            lastResult = result
+            followUp.put(JSONObject().apply {
+                put("role", "tool")
+                put("tool_call_id", call.optString("id", ""))
+                put("content", result)
+            })
+        }
+
+        if (toolCalls.length() == 1 && liveData) {
+            return if (leadIn.isNotBlank()) leadIn.trim() else lastResult
+        }
+
+        val second = groqChatCompletion(apiKey, model, followUp, null)
+        return second.optString("content", lastResult).trim()
+    }
+
+    /** Returns the raw "message" object from Groq's chat/completions response. */
+    private fun groqChatCompletion(apiKey: String, model: String, messages: JSONArray, tools: JSONArray?): JSONObject {
+        val payload = JSONObject().apply {
+            put("model", model)
+            put("messages", messages)
+            put("temperature", 0.7)
+            put("max_tokens", 400)
+            put("reasoning_effort", "low")
+            if (tools != null) {
+                put("tools", tools)
+                put("tool_choice", "auto")
+            }
+        }
+        val conn = URL("https://api.groq.com/openai/v1/chat/completions").openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.connectTimeout = 30000
+        conn.readTimeout = 30000
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("Authorization", "Bearer $apiKey")
+        conn.outputStream.use { it.write(payload.toString().toByteArray()) }
+
+        val code = conn.responseCode
+        val body = (if (code in 200..299) conn.inputStream else conn.errorStream).bufferedReader().use { it.readText() }
+        conn.disconnect()
+        if (code !in 200..299) throw RuntimeException("Groq HTTP $code: ${body.take(300)}")
+
+        return JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
     }
 
     /**

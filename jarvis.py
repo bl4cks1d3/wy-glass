@@ -41,15 +41,31 @@ def record_audio(duration_seconds: float) -> bytes:
     return recording.tobytes()
 
 
+def get_capture_manager():
+    """Returns the shared AudioCaptureManager if audio_capture is importable, else None
+    (falls back to opening a dedicated device stream — e.g. when running standalone
+    scripts that don't go through server.py)."""
+    try:
+        import audio_capture
+        return audio_capture.get_capture_manager()
+    except ImportError:
+        return None
+
+
 def record_audio_vad(
     max_duration: float = 15.0,
     silence_duration: float = 1.0,
     silence_threshold: float = 300.0,
     min_speech_duration: float = 0.3,
     chunk_ms: float = 30.0,
+    capture_manager=None,
 ) -> bytes:
     """Records until `silence_duration` seconds of quiet follow at least
-    `min_speech_duration` seconds of detected speech, or `max_duration` is hit."""
+    `min_speech_duration` seconds of detected speech, or `max_duration` is hit.
+
+    If `capture_manager` is given, reads blocks from its shared queue instead of
+    opening a dedicated sd.InputStream — required once other listeners (wake word,
+    clap detection) hold the mic's single exclusive capture stream open."""
     chunk_size = max(1, int(SAMPLE_RATE * chunk_ms / 1000))
     silence_chunks_needed = max(1, int(silence_duration * 1000 / chunk_ms))
     max_chunks = max(1, int(max_duration * 1000 / chunk_ms))
@@ -59,17 +75,34 @@ def record_audio_vad(
     speech_chunks = 0
     silence_chunks = 0
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=chunk_size) as stream:
-        for _ in range(max_chunks):
-            chunk, _ = stream.read(chunk_size)
-            frames.append(chunk.copy())
-            rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
-            if rms > silence_threshold:
-                speech_chunks += 1
-                silence_chunks = 0
-            elif speech_chunks >= speech_chunks_needed:
-                silence_chunks += 1
-                if silence_chunks >= silence_chunks_needed:
+    def process(chunk) -> bool:
+        """Appends chunk and returns True once recording should stop."""
+        nonlocal speech_chunks, silence_chunks
+        frames.append(chunk.copy())
+        rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+        if rms > silence_threshold:
+            speech_chunks += 1
+            silence_chunks = 0
+        elif speech_chunks >= speech_chunks_needed:
+            silence_chunks += 1
+            if silence_chunks >= silence_chunks_needed:
+                return True
+        return False
+
+    if capture_manager is not None:
+        q = capture_manager.subscribe()
+        try:
+            for _ in range(max_chunks):
+                chunk = q.get(timeout=5.0)
+                if process(chunk):
+                    break
+        finally:
+            capture_manager.unsubscribe(q)
+    else:
+        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="int16", blocksize=chunk_size) as stream:
+            for _ in range(max_chunks):
+                chunk, _ = stream.read(chunk_size)
+                if process(chunk):
                     break
 
     audio = np.concatenate(frames, axis=0) if frames else np.zeros((0, 1), dtype="int16")
@@ -160,14 +193,36 @@ def ask_chat_provider(base_url: str, api_key: str, model: str, system_prompt: st
     raise RuntimeError(f"provedor continuou com rate limit apos {max_retries} tentativas ({last_error})")
 
 
+def _passive_listener_pause():
+    try:
+        import passive_listener
+        passive_listener.pause()
+    except ImportError:
+        pass
+
+
+def _passive_listener_resume():
+    try:
+        import passive_listener
+        passive_listener.resume()
+    except ImportError:
+        pass
+
+
 def speak(text: str, model_name: str):
     import subprocess
     import sys
     worker = Path(__file__).parent / "tts_worker.py"
-    result = subprocess.run(
-        [sys.executable, str(worker), text, model_name],
-        capture_output=True, text=True, timeout=60,
-    )
+    # Pause wake-word/clap listening while the TTS plays out of the same Bluetooth
+    # speaker the mic listens on — otherwise the assistant's own voice can retrigger it.
+    _passive_listener_pause()
+    try:
+        result = subprocess.run(
+            [sys.executable, str(worker), text, model_name],
+            capture_output=True, text=True, timeout=60,
+        )
+    finally:
+        _passive_listener_resume()
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip()[-500:] or "tts_worker falhou sem mensagem")
 
@@ -183,6 +238,7 @@ def run_jarvis(params: dict) -> str:
         max_duration=float(params.get("max_duration_seconds", 15)),
         silence_duration=float(params.get("silence_duration_seconds", 1.0)),
         silence_threshold=float(params.get("silence_threshold", 300)),
+        capture_manager=get_capture_manager(),
     )
     wav_bytes = pcm_to_wav_bytes(pcm, SAMPLE_RATE)
 

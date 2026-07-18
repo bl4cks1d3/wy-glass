@@ -4,19 +4,55 @@
   "firmware": "LNJ-W03",
   "notify_char_uuid": "0000ff03-0000-1000-8000-00805f9b34fb",
   "actions_enabled": true,
+  "passive_listening": {
+    "enabled": false,
+    "clap_detection": {
+      "enabled": false,
+      "threshold_rms": 4000,
+      "max_duration_ms": 120,
+      "pair_window_ms": [150, 700],
+      "gesture": "button1_single"
+    }
+  },
   "gestures": {
     "button1_single": {
-      "label": "Botão 1 · Despertar Wy Glass",
+      "label": "Botão 1 · Jarvis (headless, unificado)",
+      "action": "open_jarvis_agent",
+      "params": {
+        "groq_api_key": "SUA_CHAVE_GROQ_AQUI",
+        "tavily_api_key": "SUA_CHAVE_TAVILY_AQUI",
+        "session_id": "wyglass",
+        "user_name": "SEU_NOME_AQUI",
+        "user_role": "sua atividade/papel",
+        "tts_model": "pt_BR-faber-medium.onnx",
+        "max_duration_seconds": 15,
+        "silence_duration_seconds": 1,
+        "silence_threshold": 400
+      },
+      "reliability": "high"
+    },
+    "button2_single": {
+      "label": "Botão 2 · Encerrar conversa",
+      "action": "stop_conversation",
+      "params": {
+        "farewell_text": "Até mais!",
+        "tts_model": "pt_BR-faber-medium.onnx"
+      },
+      "reliability": "high"
+    },
+    "button1_double": {
+      "label": "Botão 1 duplo · Despertar Wy Glass (Gemini)",
       "action": "jarvis_voice_agent",
       "params": {
         "provider": "gemini",
-        "google_api_key": "SUA_CHAVE_AQUI",
+        "google_api_key": "SUA_CHAVE_GEMINI_AQUI",
         "model": "gemini-2.5-flash",
         "max_duration_seconds": 15,
         "silence_duration_seconds": 1,
         "silence_threshold": 300,
         "system_prompt": "Voce e Wy Glass, um assistente de voz util, direto e simpatico. Responda sempre em portugues do Brasil sempre muito fluido",
-        "tts_model": "pt_BR-faber-medium.onnx"
+        "tts_model": "pt_BR-faber-medium.onnx",
+        "conversation_mode": true
       },
       "reliability": "high"
     }

@@ -16,7 +16,7 @@
 | Chipset Bluetooth | Baseado em Jieli (evidenciado por bibliotecas `libjl_opus.so` / `libjl_speex.so` no APK) |
 | Conectividade | Bluetooth 5.3 — **dual**: BLE (controle) + Bluetooth clássico A2DP/HFP (áudio) |
 | Botões físicos | 2 — "Frente" (perto da lente) e "Trás" (haste) |
-| Câmera | Sim (POV, não explorada neste projeto) |
+| Câmera | Não — esta unidade não tem câmera, só lanterna (o manual do fabricante menciona gravação de foto/vídeo, mas isso não se aplica a este hardware) |
 | Áudio | Alto-falante open-ear + microfone, via perfil clássico A2DP/HFP |
 
 ### 1.1 Tabela de funções dos botões (manual oficial do fabricante)
@@ -29,7 +29,7 @@
 | Atender/encerrar chamada | Clique |
 | Próxima música | Clique duplo |
 | **Despertar assistente de IA** | **Clique simples** |
-| Gravação (foto/vídeo, câmera) | Segurar 2s |
+| Gravação (foto/vídeo) — do manual, não se aplica (sem câmera nesta unidade) | Segurar 2s |
 
 **Botão de Trás:**
 

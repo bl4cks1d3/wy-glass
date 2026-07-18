@@ -12,9 +12,13 @@
 ```bash
 pip install bleak fastapi uvicorn websockets python-multipart
 pip install sounddevice numpy pillow keyboard
-pip install requests
+pip install requests beautifulsoup4
 pip install piper-tts
+pip install playwright
+playwright install chromium
 ```
+
+`playwright` e `beautifulsoup4` são usados pelo `open_jarvis_agent` (busca/navegador/notícias — ver `11-open-jarvis.md`). Se você não for usar essa ação, pode pular essas duas.
 
 ## 5.3 Baixar um modelo de voz (Piper / Hugging Face)
 

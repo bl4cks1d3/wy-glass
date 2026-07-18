@@ -78,6 +78,22 @@ Pipeline completo de assistente de voz: grava (com detecção de silêncio) → 
 
 **Por que uma chave Groq extra (`stt_api_key`) pros provedores não-Gemini?** Só o Gemini aceita áudio diretamente. Os outros (Groq, OpenRouter, Mistral, Ollama) só recebem texto, então o áudio gravado precisa ser transcrito antes — isso usa o Whisper da Groq (grátis, rápido, e o próprio Whisper é open-source). Se `provider=groq`, a mesma chave serve pras duas coisas (transcrição + resposta), então `stt_api_key` pode ficar vazio.
 
+### `open_jarvis_agent`
+
+Agente inteligente unificado (ver `11-open-jarvis.md`) — grava, transcreve (Groq Whisper), pensa com Groq (`openai/gpt-oss-20b`) com function calling nativo (busca/navegador/visão de tela/notícias/dashboard como ferramentas de verdade, não tags de texto), fala a resposta com Piper. Diferente de `jarvis_voice_agent`, não é multi-provedor — usa sempre Groq como cérebro. Implementado em `smart_agent.py` + `browser_tools.py`.
+
+| Parâmetro | Tipo | Descrição |
+|---|---|---|
+| `groq_api_key` | string | Chave de API da Groq (obrigatório) |
+| `tavily_api_key` | string | Chave da Tavily, opcional — melhora a qualidade da busca geral (ver §11.3 de `11-open-jarvis.md`); sem ela, a busca cai pra Wikipedia/DuckDuckGo |
+| `session_id` | string | Identificador do histórico de conversa (mantido em memória, por processo) |
+| `user_name` | string | Nome usado pelo agente pra se dirigir ao usuário |
+| `user_role` | string | Atividade/papel do usuário, injetado no system prompt |
+| `tts_model` | string | Nome do arquivo `.onnx` do modelo de voz Piper |
+| `max_duration_seconds`, `silence_duration_seconds`, `silence_threshold` | number | Mesmos parâmetros de VAD do `jarvis_voice_agent` |
+
+Primeira chamada de cada `session_id` dispara automaticamente uma saudação ("Jarvis activate") antes de gravar a pergunta do usuário.
+
 ### `stop_conversation`
 
 Encerra o modo conversacional ativo (ver `jarvis_voice_agent.conversation_mode`).

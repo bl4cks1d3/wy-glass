@@ -94,6 +94,7 @@ class MainActivity : AppCompatActivity(), BleBridgeService.Listener {
         val provider = AiProvider.fromId(prefs.getString("ai_provider", "gemini"))
         val apiKey = prefs.getString("api_key", "")?.trim() ?: ""
         val model = prefs.getString("ai_model", "")?.trim() ?: ""
+        val tavilyApiKey = prefs.getString("tavily_api_key", "")?.trim() ?: ""
         val ollamaHost = prefs.getString("ollama_host", "")?.trim() ?: ""
         val serverUrl = prefs.getString("server_url", "")?.trim()?.trimEnd('/') ?: ""
         val systemPrompt = prefs.getString("system_prompt", "")?.trim() ?: ""
@@ -105,6 +106,7 @@ class MainActivity : AppCompatActivity(), BleBridgeService.Listener {
         service?.aiProvider = provider
         service?.apiKey = apiKey
         service?.aiModel = model
+        service?.tavilyApiKey = tavilyApiKey
         service?.ollamaHost = ollamaHost
         service?.serverUrl = serverUrl
         if (systemPrompt.isNotBlank()) service?.systemPrompt = systemPrompt

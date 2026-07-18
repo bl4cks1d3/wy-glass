@@ -19,7 +19,7 @@ Não precisa abrir nenhum arquivo `.py` nem terminal — os atalhos cobrem os do
 | Gesto | Ação |
 |---|---|
 | **Botão 1 (frente) · clique simples** | Acorda o Jarvis (agente unificado — Groq + busca + navegador + visão de tela). Grava sua pergunta, responde, e **encerra** (não fica em loop — clique de novo pra perguntar outra coisa). |
-| **Botão 1 (frente) · clique duplo** | Alternativa via Gemini puro (conversa contínua — fica ouvindo até você apertar o botão 2). |
+| **Botão 1 (frente) · clique duplo** | Mesmo agente unificado (Groq), em modo conversa contínua — fica ouvindo de novo depois de cada resposta, sem precisar clicar de novo, até você apertar o botão 2. |
 | **Botão 2 (trás) · clique simples** | Encerra uma conversa em andamento (relevante pro clique duplo do botão 1, que fica em loop). |
 | **Botão 2 (trás) · clique duplo** | Abre o Dashboard. |
 
@@ -56,8 +56,8 @@ Na aba GESTOS: escolha um slot vazio (button1_triple e button2_triple estão liv
 
 | Ação | O que faz |
 |---|---|
-| `open_jarvis_agent` | O agente unificado completo (o mesmo do botão 1 simples) |
-| `jarvis_voice_agent` | Conversa via Gemini (multi-provedor — ver `06-referencia-acoes.md`) |
+| `open_jarvis_agent` | O agente unificado (Groq) — some `conversation_mode: true` nos parâmetros pra virar loop contínuo, igual ao botão 1 duplo |
+| `jarvis_voice_agent` | Pipeline alternativo, multi-provedor (Gemini/OpenRouter/Mistral/Ollama) — só faz sentido se precisar de um provedor específico nesse gesto; o padrão do Wy Glass é `open_jarvis_agent`/Groq em todo mundo (ver `06-referencia-acoes.md`) |
 | `open_dashboard` | Abre o painel |
 | `stop_conversation` | Encerra uma conversa em andamento |
 | `run_command` | Executa um programa |
@@ -77,7 +77,7 @@ Nenhuma dessas ações precisa de campo de chave de API no JSON — as credencia
 | Clique duplo não registrou | O clique físico precisa ser rápido mas não instantâneo — a janela de detecção é de 0.8s. Se ainda falhar, pode ser o hardware perdendo o segundo clique (raro). |
 | Dashboard não abre / fica em branco | Confirme que o servidor está rodando (`Wy Glass - Servidor.lnk` ou veja se `http://127.0.0.1:8731/api/status` responde). |
 | Busca não encontra nada | Confira se a chave Tavily está preenchida em CONFIGURAÇÕES — sem ela, cai só pra Wikipedia/DuckDuckGo, que são mais limitados. |
-| Groq/Tavily/Gemini com erro de limite | Free tiers têm cota — esperar um pouco ou trocar de provedor no `button1_double` (Gemini) como alternativa. |
+| Groq/Tavily com erro de limite | Free tiers têm cota — esperar um pouco. |
 
 ---
 

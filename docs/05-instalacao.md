@@ -65,42 +65,16 @@ Procure pelo nome anunciado pelo dispositivo (ex: `W AI 4`) e copie o endereço 
 
 ## 5.5 Configurar `config.json`
 
-Copie `config.example.json` para `config.json` (este último está no `.gitignore` — nunca é versionado, porque carrega chaves de API em texto puro) e preencha os campos:
+Copie `config.example.json` para `config.json` (este último está no `.gitignore` — nunca é versionado, porque carrega chaves de API em texto puro) e preencha `device_address` e `credentials` (chaves Groq/Tavily/Gemini — ver §5.4 pro endereço BLE). O modelo principal do Wy Glass é o **Groq** (`open_jarvis_agent`, agente unificado com busca/tools — ver `11-open-jarvis.md`); os 4 gestos padrão do `config.example.json` já vêm configurados em cima dele, sem precisar escolher um provedor por gesto:
 
-```json
-{
-  "device_address": "SEU:ENDERECO:AQUI",
-  "device_name": "Wy Glass",
-  "notify_char_uuid": "0000ff03-0000-1000-8000-00805f9b34fb",
-  "actions_enabled": true,
-  "gestures": {
-    "button1_single": {
-      "label": "Botão 1 · Despertar Wy Glass",
-      "action": "jarvis_voice_agent",
-      "params": {
-        "google_api_key": "SUA_CHAVE_AQUI",
-        "model": "gemini-2.5-flash",
-        "max_duration_seconds": 15,
-        "silence_duration_seconds": 1,
-        "silence_threshold": 300,
-        "system_prompt": "Voce e um assistente de voz util...",
-        "tts_model": "pt_BR-faber-medium.onnx",
-        "conversation_mode": true
-      },
-      "reliability": "high"
-    },
-    "button2_single": {
-      "label": "Botão 2 · Encerrar conversa",
-      "action": "stop_conversation",
-      "params": {
-        "farewell_text": "Até mais!",
-        "tts_model": "pt_BR-faber-medium.onnx"
-      },
-      "reliability": "high"
-    }
-  }
-}
-```
+| Gesto | Ação | O que faz |
+|---|---|---|
+| `button1_single` | `open_jarvis_agent` | Um turno: grava, pergunta ao Groq, responde, encerra |
+| `button1_double` | `open_jarvis_agent` + `conversation_mode: true` | Mesma coisa, em loop contínuo (fica ouvindo de novo após cada resposta, até o botão 2 encerrar) |
+| `button2_single` | `stop_conversation` | Encerra a conversa contínua ativa (relevante pro `button1_double`) |
+| `button2_double` | `open_dashboard` | Abre o painel de controle |
+
+`jarvis_voice_agent` (Gemini/OpenRouter/Mistral/Ollama, multi-provedor — ver `06-referencia-acoes.md`) continua existindo como ação alternativa caso um gesto precise de outro provedor especificamente, mas não é mais o padrão de nenhum gesto — evita a situação de um gesto ficar preso num provedor diferente do resto por engano (era o caso do `button1_double` em versões anteriores deste arquivo, fixado no Gemini enquanto o resto já tinha migrado pro Groq).
 
 Ver [06-referencia-acoes.md](06-referencia-acoes.md) para todos os tipos de ação e parâmetros disponíveis.
 

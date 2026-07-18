@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>Wy Glass — v1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 150'%3E%3Cpath d='M22 68 C6 60, 4 42, 20 30' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Cpath d='M218 68 C234 60, 236 42, 220 30' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Cpath d='M108 72 H132' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Crect x='18' y='48' width='92' height='72' rx='20' stroke='%2328f5e0' stroke-width='11' fill='black'/%3E%3Crect x='130' y='48' width='92' height='72' rx='20' stroke='%2328f5e0' stroke-width='11' fill='black'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#05070a; --bg-1:#0b0f14; --bg-2:#0f151c;
+    --panel-border:#1c2830;
+    --cyan:#2af5e0; --cyan-soft:rgba(42,245,224,0.5);
+    --amber:#ffb020;
+    --text-0:#eaf6f5; --text-1:#8ba0a5; --text-2:#4d5e63;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    overflow-x:hidden;
+    background:var(--bg-0);
+    color:var(--text-0);
+    font-family:'JetBrains Mono', monospace;
+  }
+  .display{font-family:'Rajdhani',sans-serif; font-weight:700;}
+
+  /* ---------------- background atmosphere ---------------- */
+  .atmosphere{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(ellipse 900px 600px at 50% -10%, rgba(42,245,224,0.14), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 90% 90%, rgba(255,176,32,0.07), transparent 55%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 4px);
+  }
+  .gridfloor{
+    position:fixed; left:0; right:0; bottom:0; height:60vh; z-index:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(42,245,224,0.09) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(42,245,224,0.09) 1px, transparent 1px);
+    background-size:48px 48px;
+    -webkit-mask-image:linear-gradient(to top, black, transparent);
+            mask-image:linear-gradient(to top, black, transparent);
+    transform:perspective(500px) rotateX(60deg);
+    transform-origin:bottom;
+  }
+
+  main{position:relative; z-index:1;}
+
+  /* ---------------- nav ---------------- */
+  nav{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:26px 42px; font-size:12px; letter-spacing:0.12em; text-transform:uppercase;
+  }
+  nav .wordmark{display:flex; align-items:center; gap:10px; color:var(--text-0);}
+  nav a{color:var(--text-1); text-decoration:none; border:1px solid var(--panel-border); padding:9px 18px; transition:.15s;}
+  nav a:hover{color:var(--cyan); border-color:var(--cyan-soft);}
+
+  /* ---------------- hero ---------------- */
+  .hero{
+    min-height:82vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; padding:40px 24px 20px; position:relative;
+  }
+  .v1badge{
+    font-size:11px; letter-spacing:0.25em; color:var(--amber); border:1px solid rgba(255,176,32,0.4);
+    padding:6px 16px; margin-bottom:28px; text-transform:uppercase; background:rgba(255,176,32,0.06);
+  }
+  .wordmark-hero{
+    font-size:clamp(64px, 14vw, 168px); line-height:0.88; letter-spacing:-0.01em; text-transform:uppercase;
+    color:var(--text-0);
+    text-shadow:0 0 40px rgba(42,245,224,0.25);
+  }
+  .wordmark-hero .accent{color:var(--cyan); text-shadow:0 0 30px var(--cyan-soft), 0 0 70px rgba(42,245,224,0.35);}
+  .tagline{
+    font-family:'JetBrains Mono',monospace; font-size:15px; color:var(--text-1);
+    margin-top:22px; max-width:520px; line-height:1.7; letter-spacing:0.02em;
+  }
+  .tagline b{color:var(--text-0); font-weight:500;}
+
+  .glasses-wrap{margin:52px 0 44px; position:relative;}
+  .glasses-wrap svg{filter:drop-shadow(0 0 34px rgba(42,245,224,0.35));}
+  .ring{
+    position:absolute; border:1px solid rgba(42,245,224,0.25); border-radius:50%;
+    top:50%; left:50%; transform:translate(-50%,-50%);
+    animation:ringpulse 3.2s ease-out infinite;
+  }
+  .ring.r1{width:220px; height:220px;}
+  .ring.r2{width:220px; height:220px; animation-delay:1.05s;}
+  .ring.r3{width:220px; height:220px; animation-delay:2.1s;}
+  @keyframes ringpulse{
+    0%{width:200px; height:200px; opacity:0.5;}
+    100%{width:520px; height:520px; opacity:0;}
+  }
+
+  .cta-row{display:flex; gap:16px; flex-wrap:wrap; justify-content:center;}
+  .btn{
+    font-family:'Rajdhani',sans-serif; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;
+    font-size:14px; cursor:pointer; padding:14px 30px; text-decoration:none; transition:.15s; display:inline-block;
+  }
+  .btn.primary{background:var(--cyan); color:var(--bg-0); border:1px solid var(--cyan);}
+  .btn.primary:hover{box-shadow:0 0 24px rgba(42,245,224,0.45);}
+  .btn.ghost{color:var(--text-0); border:1px solid var(--panel-border); background:transparent;}
+  .btn.ghost:hover{border-color:var(--cyan-soft); color:var(--cyan);}
+
+  /* ---------------- how it works ---------------- */
+  .section{max-width:1080px; margin:0 auto; padding:100px 32px;}
+  .section-label{font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:var(--text-2); margin-bottom:16px;}
+  .section-title{font-size:clamp(28px,4vw,44px); margin:0 0 56px; text-transform:uppercase; color:var(--text-0);}
+
+  .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:24px;}
+  @media (max-width:820px){ .steps{grid-template-columns:1fr;} }
+  .step{
+    background:linear-gradient(180deg,var(--bg-1),var(--bg-2)); border:1px solid var(--panel-border);
+    padding:28px 24px; position:relative; min-width:0;
+  }
+  .step .num{
+    font-family:'Rajdhani',sans-serif; font-weight:700; font-size:46px; color:var(--cyan); opacity:0.85; line-height:1;
+  }
+  .step h3{font-family:'Rajdhani',sans-serif; font-size:20px; text-transform:uppercase; margin:14px 0 8px; color:var(--text-0);}
+  .step p{font-size:13px; color:var(--text-1); line-height:1.6; margin:0;}
+  .step-arrow{display:flex; align-items:center; justify-content:center; color:var(--text-2); font-size:20px;}
+  @media (max-width:820px){ .step-arrow{transform:rotate(90deg); margin:-8px 0;} }
+
+  /* ---------------- spec sheet ---------------- */
+  .specsheet{
+    background:var(--bg-1); border:1px solid var(--panel-border); padding:0; overflow:hidden;
+  }
+  .specrow{
+    display:grid; grid-template-columns:200px 1fr; border-bottom:1px solid var(--panel-border); font-size:13px;
+  }
+  .specrow:last-child{border-bottom:none;}
+  .specrow .k{padding:16px 20px; color:var(--text-2); text-transform:uppercase; letter-spacing:0.06em; font-size:11px; border-right:1px solid var(--panel-border);}
+  .specrow .v{padding:16px 20px; color:var(--text-0);}
+  .specrow .v .dim{color:var(--text-1);}
+  @media (max-width:600px){ .specrow{grid-template-columns:140px 1fr;} }
+
+  /* ---------------- footer ---------------- */
+  footer{
+    border-top:1px solid var(--panel-border); padding:32px 42px; display:flex; justify-content:space-between;
+    align-items:center; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--text-2); letter-spacing:0.06em; text-transform:uppercase;
+  }
+  footer .status{display:flex; align-items:center; gap:8px;}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); animation:blink 1.8s infinite;}
+  @keyframes blink{0%,100%{opacity:1;} 50%{opacity:0.3;}}
+</style>
+</head>
+<body>
+
+<div class="atmosphere"></div>
+<div class="gridfloor"></div>
+
+<main>
+<nav>
+  <div class="wordmark">
+    <svg width="26" height="17" viewBox="0 0 240 150" fill="none">
+      <path d="M22 68 C6 60, 4 42, 20 30" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
+      <path d="M218 68 C234 60, 236 42, 220 30" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
+      <path d="M108 72 H132" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
+      <rect x="18" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="10"/>
+      <rect x="130" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="10"/>
+    </svg>
+    WY GLASS
+  </div>
+  <div style="display:flex; gap:12px;">
+    <a href="/test">Diagnóstico</a>
+    <a href="/deck">Control Deck →</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="v1badge">Build v1 · Hardware Hackeado</div>
+  <div class="wordmark-hero display">WY<br><span class="accent">GLASS</span></div>
+  <p class="tagline">Óculos genéricos reprogramados por engenharia reversa de BLE.<br>
+  Um clique no botão físico e o <b>Gemini</b> escuta, pensa e responde — falando direto no seu ouvido.</p>
+
+  <div class="glasses-wrap">
+    <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+    <svg width="260" height="160" viewBox="0 0 240 150" fill="none">
+      <path d="M22 68 C6 60, 4 42, 20 30" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
+      <path d="M218 68 C234 60, 236 42, 220 30" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
+      <path d="M108 72 H132" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
+      <rect x="18" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="6"/>
+      <rect x="130" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="6"/>
+      <circle cx="42" cy="80" r="7" stroke="#2af5e0" stroke-width="4"/>
+      <circle cx="42" cy="80" r="2.5" fill="#2af5e0"/>
+      <path d="M56 80 H74" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
+      <path d="M148 76 H176" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
+      <path d="M148 88 H168" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
+      <path d="M148 100 H158" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
+      <path d="M196 68 H206 V96 H188" stroke="#2af5e0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="206" cy="68" r="4" stroke="#2af5e0" stroke-width="3"/>
+    </svg>
+  </div>
+
+  <div class="cta-row">
+    <a class="btn primary" href="/deck">Abrir Control Deck</a>
+    <a class="btn ghost" href="/test">Painel de Diagnóstico</a>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-label">// Fluxo</div>
+  <div class="section-title">Como funciona</div>
+  <div class="steps">
+    <div class="step">
+      <div class="num">01</div>
+      <h3>Aperte o botão</h3>
+      <p>Um clique simples no botão frontal dos óculos dispara o gatilho — capturado direto via BLE, sem depender do app do fabricante.</p>
+    </div>
+    <div class="step">
+      <div class="num">02</div>
+      <h3>Fale sua pergunta</h3>
+      <p>O microfone grava alguns segundos de áudio, que é enviado direto pro Gemini — sem transcrição intermediária.</p>
+    </div>
+    <div class="step">
+      <div class="num">03</div>
+      <h3>Wy Glass responde</h3>
+      <p>A resposta é sintetizada em voz natural (Google TTS) e tocada no alto-falante Bluetooth dos óculos.</p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-label">// Especificações</div>
+  <div class="section-title">Ficha técnica</div>
+  <div class="specsheet">
+    <div class="specrow"><div class="k">Hardware</div><div class="v">Microwear W AI 4 <span class="dim">· firmware LNJ-W03</span></div></div>
+    <div class="specrow"><div class="k">Conexão</div><div class="v">BLE (controle + gatilho) + Bluetooth clássico A2DP/HFP (áudio)</div></div>
+    <div class="specrow"><div class="k">Gatilho</div><div class="v">Botão frontal · clique simples · protocolo proprietário decodificado por engenharia reversa</div></div>
+    <div class="specrow"><div class="k">Cérebro</div><div class="v">Google Gemini <span class="dim">(entende áudio nativamente, sem STT separado)</span></div></div>
+    <div class="specrow"><div class="k">Voz</div><div class="v">Google Cloud Text-to-Speech <span class="dim">· pt-BR</span></div></div>
+    <div class="specrow"><div class="k">Stack</div><div class="v">Python · FastAPI · Bleak (BLE) · WebSocket</div></div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div>Wy Glass v1 · projeto pessoal de hardware hacking</div>
+  <div class="status"><div class="dot"></div> sistema ativo</div>
+</footer>
+
+</body>
+</html>

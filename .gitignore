@@ -1,0 +1,27 @@
+# Segredos / config local (nunca commitar — ver config.example.json)
+config.json
+
+# Dados pessoais gerados em uso
+recordings/
+screenshots/
+
+# Python
+__pycache__/
+*.pyc
+
+# Logs
+vbs_debug.log
+vbs_run.log
+
+# Modelos de voz (binários grandes, baixados via docs/05-instalacao.md)
+tts_models/*.onnx
+tts_models/*.onnx.json
+
+# Android
+android-app/.gradle/
+android-app/app/build/
+android-app/build/
+android-app/local.properties
+android-app/app/src/main/assets/tts/*.onnx
+android-app/app/src/main/assets/tts/espeak-ng-data/
+android-app/app/libs/*.aar

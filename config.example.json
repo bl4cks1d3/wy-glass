@@ -1,0 +1,24 @@
+{
+  "device_address": "SEU:ENDERECO:BLE:AQUI",
+  "device_name": "Wy Glass",
+  "firmware": "LNJ-W03",
+  "notify_char_uuid": "0000ff03-0000-1000-8000-00805f9b34fb",
+  "actions_enabled": true,
+  "gestures": {
+    "button1_single": {
+      "label": "Botão 1 · Despertar Wy Glass",
+      "action": "jarvis_voice_agent",
+      "params": {
+        "provider": "gemini",
+        "google_api_key": "SUA_CHAVE_AQUI",
+        "model": "gemini-2.5-flash",
+        "max_duration_seconds": 15,
+        "silence_duration_seconds": 1,
+        "silence_threshold": 300,
+        "system_prompt": "Voce e Wy Glass, um assistente de voz util, direto e simpatico. Responda sempre em portugues do Brasil sempre muito fluido",
+        "tts_model": "pt_BR-faber-medium.onnx"
+      },
+      "reliability": "high"
+    }
+  }
+}

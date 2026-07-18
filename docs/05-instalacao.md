@@ -106,7 +106,9 @@ Ver [06-referencia-acoes.md](06-referencia-acoes.md) para todos os tipos de aç�
 
 ## 5.6 Rodar o servidor
 
-**No dia a dia**: use os atalhos "Wy Glass - Servidor" / "Wy Glass - Dashboard" (área de trabalho) — o Dashboard sobe o servidor sozinho se ele ainda não estiver rodando, não precisa abrir os dois manualmente. Ver `12-guia-de-uso.md` §12.1 para o fluxo completo do dia a dia (botões físicos, comandos de voz, abas do Dashboard).
+**Rodando do source pela primeira vez (ou depurando um problema de setup)**: dê duplo-clique em `Iniciar Wy Glass.vbs` (raiz do projeto) — ele valida o ambiente (as mesmas checagens do `setup_dev.py`), sobe o servidor esperando de verdade a porta abrir (não só dispara o processo e torce), e abre o Dashboard. Roda **totalmente oculto** (nenhuma janela de console pisca na tela) — se algo falhar em qualquer etapa, aparece uma **caixa de erro nativa do Windows** com o motivo exato, em vez de simplesmente não acontecer nada (que é o que acontecia antes: `WyGlass.exe`/`WyGlassDashboard.exe`, via `DETACHED_PROCESS`, engolem qualquer falha de inicialização inteira dentro do `server_launcher.log`, sem avisar visualmente). `start_all.py` é o script por trás — pode ser chamado direto (`python start_all.py`, com console, para depurar) se preferir ver o log em tempo real em vez da caixa de erro.
+
+**No dia a dia** (ambiente já validado): use os atalhos "Wy Glass - Servidor" / "Wy Glass - Dashboard" (área de trabalho) — o Dashboard sobe o servidor sozinho se ele ainda não estiver rodando, não precisa abrir os dois manualmente. Ver `12-guia-de-uso.md` §12.1 para o fluxo completo do dia a dia (botões físicos, comandos de voz, abas do Dashboard).
 
 **Em primeiro plano, direto do source (para testar/depurar)**:
 

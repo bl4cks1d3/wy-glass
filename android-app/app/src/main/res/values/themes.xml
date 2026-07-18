@@ -1,24 +1,70 @@
 <resources>
     <style name="Theme.WyGlass" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@android:color/holo_blue_dark</item>
-        <item name="colorPrimaryDark">@android:color/black</item>
-        <item name="colorAccent">@android:color/holo_blue_light</item>
+        <item name="colorPrimary">@color/signal</item>
+        <item name="colorPrimaryDark">@color/bg_void</item>
+        <item name="colorAccent">@color/signal</item>
+        <item name="colorControlNormal">@color/hairline</item>
+        <item name="colorControlActivated">@color/signal</item>
+        <item name="android:windowBackground">@color/bg_void</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorHint">@color/ink_faint</item>
+        <item name="fontFamily">@font/space_grotesk_regular</item>
+        <item name="android:fontFamily">@font/space_grotesk_regular</item>
+    </style>
+
+    <!-- eyebrow / section label — small, wide-tracked, uppercase, quiet -->
+    <style name="Eyebrow">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:fontFamily">@font/space_grotesk_medium</item>
+        <item name="android:textColor">@color/signal</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.16</item>
+        <item name="android:textAllCaps">true</item>
     </style>
 
     <style name="SettingsLabel">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#8fa3a8</item>
-        <item name="android:textSize">11sp</item>
-        <item name="android:layout_marginTop">10dp</item>
-        <item name="android:layout_marginBottom">4dp</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textColor">@color/ink_dim</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:layout_marginTop">12dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
     </style>
 
     <style name="SettingsInput">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
-        <item name="android:textColor">#e8f3f2</item>
-        <item name="android:textColorHint">#516066</item>
-        <item name="android:backgroundTint">#28f5e0</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textColorHint">@color/ink_faint</item>
+        <item name="android:textSize">14sp</item>
+        <item name="android:background">@drawable/input_bg</item>
+        <item name="android:paddingHorizontal">14dp</item>
+        <item name="android:paddingVertical">12dp</item>
+    </style>
+
+    <!-- filled-outline HUD button — primary action -->
+    <style name="ButtonPrimary" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">@drawable/btn_primary</item>
+        <item name="android:textColor">@color/signal</item>
+        <item name="android:fontFamily">@font/space_grotesk_medium</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.05</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:paddingVertical">13dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+
+    <!-- outline HUD button — secondary / destructive action -->
+    <style name="ButtonOutline" parent="Widget.AppCompat.Button.Borderless">
+        <item name="android:background">@drawable/btn_outline</item>
+        <item name="android:textColor">@color/ink_dim</item>
+        <item name="android:fontFamily">@font/space_grotesk_medium</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.05</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:paddingVertical">13dp</item>
+        <item name="android:stateListAnimator">@null</item>
     </style>
 </resources>

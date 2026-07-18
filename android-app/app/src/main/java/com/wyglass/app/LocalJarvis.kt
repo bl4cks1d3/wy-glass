@@ -47,6 +47,23 @@ class LocalJarvis(private val context: Context) {
     private var volumePercent = 100
     private var focusRequest: AudioFocusRequest? = null
 
+    private val weekdaysPt = listOf(
+        "segunda-feira", "terca-feira", "quarta-feira", "quinta-feira",
+        "sexta-feira", "sabado", "domingo"
+    )
+
+    /**
+     * Real wall-clock time from the phone — the LLM has no clock of its own, so this has to be
+     * injected into the system prompt on every turn, not guessed. Kotlin port of the PC side's
+     * smart_agent.py _now_str(); java.time is available unconditionally since minSdk 26.
+     */
+    private fun nowStr(): String {
+        val now = java.time.LocalDateTime.now()
+        val weekday = weekdaysPt[now.dayOfWeek.value - 1]
+        return "$weekday, ${"%02d/%02d/%04d".format(now.dayOfMonth, now.monthValue, now.year)}, " +
+            "${"%02d:%02d".format(now.hour, now.minute)}"
+    }
+
     fun setVolumePercent(percent: Int) {
         volumePercent = percent.coerceIn(0, 100)
     }
@@ -203,12 +220,17 @@ class LocalJarvis(private val context: Context) {
      * through on-device speech-to-text first (see Transcriber).
      */
     fun runTurn(config: ProviderConfig, systemPrompt: String, tavilyApiKey: String = "", log: (String) -> Unit): String {
+        // Recomputed every turn (not cached) so a long-idle session doesn't answer "que horas
+        // sao" with a stale time — same reasoning as the PC side's build_system_prompt.
+        val effectivePrompt = "$systemPrompt\n\nDATA E HORA ATUAIS (relogio real do celular — " +
+            "unica fonte confiavel pra saudacoes ou perguntas de horario/data, voce nao tem " +
+            "relogio proprio): ${nowStr()}"
         val reply: String
         if (config.provider == AiProvider.GEMINI) {
             log("ouvindo...")
             val wav = recordWavVad()
             log("perguntando ao Gemini...")
-            reply = askGemini(config.apiKey, config.model, systemPrompt, wav)
+            reply = askGemini(config.apiKey, config.model, effectivePrompt, wav)
         } else {
             ensureBtScoRoute()
             log("ouvindo...")
@@ -221,9 +243,9 @@ class LocalJarvis(private val context: Context) {
             // either doesn't support it well or, in Llama's case, actively breaks (see
             // AiProvider.kt). Everyone else falls back to a plain chat completion.
             reply = if (config.provider == AiProvider.GROQ) {
-                askGroqWithTools(config.apiKey, config.model, systemPrompt, userText, tavilyApiKey, log)
+                askGroqWithTools(config.apiKey, config.model, effectivePrompt, userText, tavilyApiKey, log)
             } else {
-                askChatProvider(config, systemPrompt, userText)
+                askChatProvider(config, effectivePrompt, userText)
             }
         }
         log("resposta: \"$reply\"")
@@ -263,6 +285,18 @@ class LocalJarvis(private val context: Context) {
                     })
                 })
             })
+            .put(JSONObject().apply {
+                put("type", "function")
+                put("function", JSONObject().apply {
+                    put("name", "open_app")
+                    put("description", "Abre um aplicativo instalado no celular pelo nome (ex: whatsapp, camera, spotify, instagram).")
+                    put("parameters", JSONObject().apply {
+                        put("type", "object")
+                        put("properties", JSONObject().put("name", JSONObject().put("type", "string").put("description", "nome do aplicativo")))
+                        put("required", JSONArray().put("name"))
+                    })
+                })
+            })
 
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
@@ -296,6 +330,7 @@ class LocalJarvis(private val context: Context) {
                     r.content
                 }
                 "open_url" -> AgentTools.openUrl(context, args.optString("url", ""))
+                "open_app" -> AgentTools.openApp(context, args.optString("name", ""))
                 else -> "ferramenta desconhecida: $name"
             }
             lastResult = result
@@ -306,7 +341,11 @@ class LocalJarvis(private val context: Context) {
             })
         }
 
-        if (toolCalls.length() == 1 && liveData) {
+        // open_url/open_app results are a raw URL/status line, not meant to be read aloud
+        // verbatim — but there's also no need for a second Groq round-trip just to reword
+        // them, same reasoning as the PC side's execute_tool() skip_summary.
+        val singleToolName = if (toolCalls.length() == 1) toolCalls.getJSONObject(0).getJSONObject("function").getString("name") else null
+        if (toolCalls.length() == 1 && (liveData || singleToolName == "open_url" || singleToolName == "open_app")) {
             return if (leadIn.isNotBlank()) leadIn.trim() else lastResult
         }
 

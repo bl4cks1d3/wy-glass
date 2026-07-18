@@ -11,6 +11,7 @@ import uvicorn
 
 from bleak import BleakClient, BleakScanner
 import actions
+from version import __version__
 # audio_capture/passive_listener import sounddevice, which touches COM/WinRT on import
 # (PortAudio's Windows device enumeration) — importing them at module load time, before
 # bleak's WinRT scanner gets to assert its own MTA apartment, breaks bleak with
@@ -51,6 +52,7 @@ class State:
         self.connected_at = None
         self.websockets: set[WebSocket] = set()
         self.client: BleakClient | None = None
+        self.ble_task = None
         self.counters = {"button1": ButtonCounter("button1"), "button2": ButtonCounter("button2")}
         self.conversation_active = False
         self.conversation_task = None
@@ -259,7 +261,7 @@ async def ble_manager():
 
 @app.on_event("startup")
 async def startup():
-    asyncio.create_task(ble_manager())
+    state.ble_task = asyncio.create_task(ble_manager())
 
 
 @app.on_event("shutdown")
@@ -312,12 +314,31 @@ async def set_actions_enabled(body: dict):
 async def get_status():
     return {"connected": state.connected, "device_address": state.config["device_address"],
              "device_name": state.config.get("device_name"), "firmware": state.config.get("firmware"),
-             "actions_enabled": state.config.get("actions_enabled", False)}
+             "actions_enabled": state.config.get("actions_enabled", False), "app_version": __version__}
 
 
 @app.post("/api/test/{gesture_key}")
 async def test_gesture(gesture_key: str):
     await fire_gesture(gesture_key, raw_hex="(teste manual)")
+    return {"ok": True}
+
+
+@app.post("/api/reconnect")
+async def reconnect():
+    """Manual one-click reconnect (dashboard STATUS tab / botão CONECTAR). ble_manager() already
+    retries forever on its own, but only after its own scan-timeout + backoff sleep — this forces
+    an immediate fresh attempt instead of waiting, and is also the way to reclaim the BLE central
+    slot from the phone app (which holds it exclusively, see docs/10-app-android.md §10.9): drop
+    whatever client we currently hold, kill the running manager task, and start a clean one."""
+    if state.client:
+        try:
+            await state.client.disconnect()
+        except Exception:
+            pass
+    if state.ble_task and not state.ble_task.done():
+        state.ble_task.cancel()
+    state.ble_task = asyncio.create_task(ble_manager())
+    await broadcast({"type": "status", "connected": False, "message": "reconectando (manual)..."})
     return {"ok": True}
 
 

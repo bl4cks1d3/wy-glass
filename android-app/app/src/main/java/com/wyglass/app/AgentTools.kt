@@ -202,4 +202,44 @@ object AgentTools {
             "Nao foi possivel abrir $url: ${e.message}"
         }
     }
+
+    private fun normalizeAppName(s: String): String =
+        java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{Mn}+"), "")
+            .lowercase()
+            .trim()
+
+    /**
+     * Opens an installed app by its display name (e.g. "whatsapp", "camera", "spotify") — the
+     * phone-side equivalent of the PC's run_command (actions.py), scoped to "launch an app" since
+     * that's the action that actually makes sense from a voice command on a phone. Matching is
+     * accent/case-insensitive exact-first, then substring, over every launchable activity's
+     * label (android.intent.action.MAIN / CATEGORY_LAUNCHER) — requires the <queries> declaration
+     * in AndroidManifest.xml on API 30+, otherwise queryIntentActivities() returns almost nothing
+     * (package visibility).
+     */
+    fun openApp(context: android.content.Context, name: String): String {
+        if (name.isBlank()) return "Nome do aplicativo nao informado."
+        val pm = context.packageManager
+        val launcherIntent = android.content.Intent(android.content.Intent.ACTION_MAIN)
+            .addCategory(android.content.Intent.CATEGORY_LAUNCHER)
+        val apps = pm.queryIntentActivities(launcherIntent, 0)
+        if (apps.isEmpty()) return "Nao consegui listar os aplicativos instalados."
+
+        val query = normalizeAppName(name)
+        val match = apps.firstOrNull { normalizeAppName(it.loadLabel(pm).toString()) == query }
+            ?: apps.firstOrNull { normalizeAppName(it.loadLabel(pm).toString()).contains(query) }
+            ?: apps.firstOrNull { query.contains(normalizeAppName(it.loadLabel(pm).toString())) }
+            ?: return "Nao encontrei nenhum aplicativo chamado \"$name\" instalado."
+
+        return try {
+            val launch = pm.getLaunchIntentForPackage(match.activityInfo.packageName)
+                ?.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: return "Encontrei ${match.loadLabel(pm)} mas nao consegui abrir."
+            context.startActivity(launch)
+            "Abrindo ${match.loadLabel(pm)}."
+        } catch (e: Exception) {
+            "Nao foi possivel abrir ${match.loadLabel(pm)}: ${e.message}"
+        }
+    }
 }

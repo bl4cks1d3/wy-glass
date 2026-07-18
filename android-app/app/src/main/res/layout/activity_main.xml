@@ -2,34 +2,59 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#07090b">
+    android:background="@color/bg_void"
+    android:fitsSystemWindows="true">
 
-    <TextView
-        android:id="@+id/settingsButton"
-        android:layout_width="wrap_content"
+    <!-- top bar: wordmark + settings -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentTop="true"
-        android:layout_alignParentEnd="true"
-        android:layout_margin="20dp"
-        android:padding="10dp"
-        android:text="⚙"
-        android:textColor="#8fa3a8"
-        android:textSize="26sp"
-        android:clickable="true"
-        android:focusable="true" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="22dp"
+        android:paddingTop="24dp">
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_marginTop="24dp"
-        android:layout_centerHorizontal="true"
-        android:text="WY GLASS"
-        android:textColor="#28f5e0"
-        android:textSize="20sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.1" />
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
 
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="WY GLASS"
+                android:textColor="@color/signal"
+                android:fontFamily="@font/space_grotesk_bold"
+                android:textSize="17sp"
+                android:letterSpacing="0.1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="assistente óptico · ble link"
+                android:textColor="@color/ink_faint"
+                android:fontFamily="monospace"
+                android:textSize="10sp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/settingsButton"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/panel_bg"
+            android:text="⚙"
+            android:textColor="@color/ink_dim"
+            android:textSize="18sp"
+            android:gravity="center"
+            android:clickable="true"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <!-- centerpiece: reticle-framed lens -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -39,7 +64,13 @@
 
         <FrameLayout
             android:layout_width="260dp"
-            android:layout_height="180dp">
+            android:layout_height="260dp">
+
+            <View
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:layout_gravity="center"
+                android:background="@drawable/ring_outer" />
 
             <View
                 android:id="@+id/pulseRing"
@@ -50,23 +81,35 @@
                 android:visibility="invisible" />
 
             <ImageView
-                android:layout_width="220dp"
-                android:layout_height="140dp"
+                android:layout_width="240dp"
+                android:layout_height="240dp"
+                android:layout_gravity="center"
+                android:src="@drawable/ic_reticle"
+                android:contentDescription="@null" />
+
+            <ImageView
+                android:layout_width="200dp"
+                android:layout_height="126dp"
                 android:layout_gravity="center"
                 android:src="@drawable/ic_glasses"
                 android:contentDescription="@string/app_name" />
         </FrameLayout>
 
         <TextView
+            style="@style/Eyebrow"
+            android:layout_marginTop="26dp"
+            android:text="estado" />
+
+        <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="4dp"
             android:text="DESCONECTADO"
-            android:textColor="#ff4d6a"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.08" />
+            android:textColor="@color/alert"
+            android:fontFamily="@font/space_grotesk_bold"
+            android:textSize="19sp"
+            android:letterSpacing="0.06" />
 
         <TextView
             android:id="@+id/subStatusText"
@@ -74,23 +117,43 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text=""
-            android:textColor="#516066"
-            android:textSize="12sp"
+            android:textColor="@color/ink_dim"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
             android:gravity="center"
             android:maxWidth="280dp" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/lastHeardText"
+    <!-- bottom: last transcript, terminal-style readout -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:layout_margin="24dp"
-        android:text=""
-        android:textColor="#516066"
-        android:textSize="11sp"
-        android:fontFamily="monospace"
-        android:gravity="center"
-        android:maxLines="3" />
+        android:layout_margin="22dp"
+        android:orientation="horizontal"
+        android:background="@drawable/terminal_bg"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="&gt;"
+            android:textColor="@color/signal"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:layout_marginEnd="8dp" />
+
+        <TextView
+            android:id="@+id/lastHeardText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text=""
+            android:textColor="@color/ink_dim"
+            android:fontFamily="monospace"
+            android:textSize="11sp"
+            android:maxLines="3" />
+    </LinearLayout>
 
 </RelativeLayout>

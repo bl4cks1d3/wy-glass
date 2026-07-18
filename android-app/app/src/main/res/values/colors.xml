@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- surfaces -->
+    <color name="bg_void">#05080A</color>
+    <color name="panel">#0C1418</color>
+    <color name="panel_hi">#111B20</color>
+    <color name="hairline">#1C2A30</color>
+
+    <!-- text -->
+    <color name="ink">#E9F4F2</color>
+    <color name="ink_dim">#6E848B</color>
+    <color name="ink_faint">#3A4A50</color>
+
+    <!-- signal (brand) -->
+    <color name="signal">#2BF5DA</color>
+    <color name="signal_dim">#123A38</color>
+    <color name="signal_faint">#0E2422</color>
+
+    <!-- state -->
+    <color name="live">#3DFFA0</color>
+    <color name="alert">#FF4D6A</color>
+</resources>

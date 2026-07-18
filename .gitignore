@@ -12,6 +12,14 @@ __pycache__/
 # Logs
 vbs_debug.log
 vbs_run.log
+server_launcher.log
+
+# Estado de runtime (nao e config nem codigo)
+.dashboard.lock
+
+# Cache de build do PyInstaller (regenerado a cada launchers/release.py — so dist/*.exe
+# e versionado, esses intermediarios nao)
+launchers/build/
 
 # Modelos de voz (binários grandes, baixados via docs/05-instalacao.md)
 tts_models/*.onnx

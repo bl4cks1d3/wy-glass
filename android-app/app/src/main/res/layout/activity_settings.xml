@@ -2,8 +2,9 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0a0f14"
-    android:fillViewport="true">
+    android:background="@color/bg_void"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
 
 <LinearLayout
     android:layout_width="match_parent"
@@ -16,16 +17,17 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="18dp">
 
         <TextView
             android:id="@+id/backButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/panel_bg"
             android:text="←"
-            android:textColor="#8fa3a8"
-            android:textSize="24sp"
-            android:padding="8dp"
+            android:textColor="@color/ink_dim"
+            android:textSize="18sp"
+            android:gravity="center"
             android:clickable="true"
             android:focusable="true" />
 
@@ -33,126 +35,152 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="CONFIGURAÇÕES"
-            android:textColor="#28f5e0"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.05"
-            android:layout_marginStart="8dp" />
+            android:textColor="@color/signal"
+            android:fontFamily="@font/space_grotesk_bold"
+            android:textSize="16sp"
+            android:letterSpacing="0.08"
+            android:layout_marginStart="12dp" />
     </LinearLayout>
 
-    <TextView style="@style/SettingsLabel" android:text="Endereço BLE dos óculos" />
-    <EditText android:id="@+id/deviceAddressInput" style="@style/SettingsInput" />
+    <!-- CONEXÃO -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:background="@drawable/panel_bg"
+        android:padding="16dp" android:layout_marginBottom="14dp">
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1e2a35" android:layout_marginVertical="16dp" />
+        <TextView style="@style/Eyebrow" android:text="01 · conexão" />
+        <TextView style="@style/SettingsLabel" android:text="Endereço BLE dos óculos" />
+        <EditText android:id="@+id/deviceAddressInput" style="@style/SettingsInput" />
+    </LinearLayout>
 
-    <TextView style="@style/SettingsLabel" android:text="Provedor de IA (grátis / open-source)" />
-    <Spinner
-        android:id="@+id/providerSpinner"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:background="#141b22"
-        android:popupBackground="#141b22" />
+    <!-- INTELIGÊNCIA -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:background="@drawable/panel_bg"
+        android:padding="16dp" android:layout_marginBottom="14dp">
 
-    <TextView android:id="@+id/apiKeyLabel" style="@style/SettingsLabel" android:text="Chave de API" android:layout_marginTop="12dp" />
-    <EditText android:id="@+id/apiKeyInput" style="@style/SettingsInput" android:inputType="textPassword" />
+        <TextView style="@style/Eyebrow" android:text="02 · inteligência" />
 
-    <TextView style="@style/SettingsLabel" android:text="Modelo (vazio = padrão do provedor)" android:layout_marginTop="12dp" />
-    <EditText android:id="@+id/modelInput" style="@style/SettingsInput" />
+        <TextView style="@style/SettingsLabel" android:text="Provedor de IA (grátis / open-source)" />
+        <Spinner
+            android:id="@+id/providerSpinner"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/input_bg"
+            android:paddingHorizontal="14dp"
+            android:popupBackground="@color/panel" />
 
-    <TextView android:id="@+id/tavilyKeyLabel" style="@style/SettingsLabel" android:text="Chave Tavily (busca — só usada com Groq, opcional)" android:layout_marginTop="12dp" android:visibility="gone" />
-    <EditText android:id="@+id/tavilyKeyInput" style="@style/SettingsInput" android:inputType="textPassword" android:visibility="gone" />
+        <TextView android:id="@+id/apiKeyLabel" style="@style/SettingsLabel" android:text="Chave de API" />
+        <EditText android:id="@+id/apiKeyInput" style="@style/SettingsInput" android:inputType="textPassword" />
 
-    <TextView android:id="@+id/ollamaHostLabel" style="@style/SettingsLabel" android:text="IP do PC rodando o Ollama" android:layout_marginTop="12dp" android:visibility="gone" />
-    <EditText android:id="@+id/ollamaHostInput" style="@style/SettingsInput" android:hint="ex: 192.168.0.10" android:visibility="gone" />
+        <TextView style="@style/SettingsLabel" android:text="Modelo (vazio = padrão do provedor)" />
+        <EditText android:id="@+id/modelInput" style="@style/SettingsInput" />
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1e2a35" android:layout_marginVertical="16dp" />
+        <TextView android:id="@+id/tavilyKeyLabel" style="@style/SettingsLabel" android:text="Chave Tavily (busca — só usada com Groq, opcional)" android:visibility="gone" />
+        <EditText android:id="@+id/tavilyKeyInput" style="@style/SettingsInput" android:inputType="textPassword" android:visibility="gone" />
 
-    <TextView style="@style/SettingsLabel" android:text="URL do servidor Wy Glass no PC (opcional — fallback)" />
-    <EditText android:id="@+id/serverUrlInput" style="@style/SettingsInput" />
+        <TextView android:id="@+id/ollamaHostLabel" style="@style/SettingsLabel" android:text="IP do PC rodando o Ollama" android:visibility="gone" />
+        <EditText android:id="@+id/ollamaHostInput" style="@style/SettingsInput" android:hint="ex: 192.168.0.10" android:visibility="gone" />
+    </LinearLayout>
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1e2a35" android:layout_marginVertical="16dp" />
+    <!-- SERVIDOR -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:background="@drawable/panel_bg"
+        android:padding="16dp" android:layout_marginBottom="14dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        <TextView style="@style/Eyebrow" android:text="03 · servidor" />
+        <TextView style="@style/SettingsLabel" android:text="URL do servidor Wy Glass no PC (opcional — fallback)" />
+        <EditText android:id="@+id/serverUrlInput" style="@style/SettingsInput" />
+    </LinearLayout>
 
-        <TextView
-            android:layout_width="0dp"
+    <!-- VOZ -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:background="@drawable/panel_bg"
+        android:padding="16dp" android:layout_marginBottom="14dp">
+
+        <TextView style="@style/Eyebrow" android:text="04 · voz" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Palavra de ativação (escuta contínua)"
-            android:textColor="#8fa3a8"
-            android:textSize="12sp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="10dp">
 
-        <Switch
-            android:id="@+id/wakeWordSwitch"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Palavra de ativação (escuta contínua)"
+                android:textColor="@color/ink_dim"
+                android:textSize="12sp" />
+
+            <Switch
+                android:id="@+id/wakeWordSwitch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <TextView style="@style/SettingsLabel" android:text="Palavra de ativação" />
+        <EditText android:id="@+id/wakeWordInput" style="@style/SettingsInput" android:text="sankofa" />
+
+        <TextView android:id="@+id/volumeLabel" style="@style/SettingsLabel" android:text="Volume da resposta" />
+        <SeekBar
+            android:id="@+id/volumeSeekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:max="100"
+            android:progress="100" />
     </LinearLayout>
 
-    <TextView style="@style/SettingsLabel" android:text="Palavra de ativação" android:layout_marginTop="12dp" />
-    <EditText android:id="@+id/wakeWordInput" style="@style/SettingsInput" android:text="sankofa" />
+    <!-- PERSONALIDADE -->
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:background="@drawable/panel_bg"
+        android:padding="16dp" android:layout_marginBottom="18dp">
 
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1e2a35" android:layout_marginVertical="16dp" />
-
-    <TextView android:id="@+id/volumeLabel" style="@style/SettingsLabel" android:text="Volume da resposta" />
-    <SeekBar
-        android:id="@+id/volumeSeekBar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:max="100"
-        android:progress="100" />
-
-    <View android:layout_width="match_parent" android:layout_height="1dp" android:background="#1e2a35" android:layout_marginVertical="16dp" />
-
-    <TextView style="@style/SettingsLabel" android:text="Prompt de sistema" />
-    <EditText android:id="@+id/systemPromptInput" style="@style/SettingsInput"
-        android:text="Voce e Wy Glass, um assistente de voz util, direto e simpatico. Responda sempre em portugues do Brasil, de forma breve." />
+        <TextView style="@style/Eyebrow" android:text="05 · personalidade" />
+        <TextView style="@style/SettingsLabel" android:text="Prompt de sistema" />
+        <EditText android:id="@+id/systemPromptInput" style="@style/SettingsInput"
+            android:text="Voce e Wy Glass, um assistente de voz util, direto e simpatico. Responda sempre em portugues do Brasil, de forma breve." />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="20dp">
+        android:orientation="horizontal">
 
-        <Button
+        <android.widget.Button
             android:id="@+id/saveButton"
+            style="@style/ButtonPrimary"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginEnd="8dp"
             android:text="Salvar e conectar" />
 
-        <Button
+        <android.widget.Button
             android:id="@+id/disconnectButton"
+            style="@style/ButtonOutline"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
+            android:layout_marginStart="8dp"
             android:text="Desconectar" />
     </LinearLayout>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Log ao vivo"
-        android:textColor="#8fa3a8"
-        android:textSize="11sp"
-        android:layout_marginTop="20dp" />
+    <TextView style="@style/Eyebrow" android:layout_marginTop="22dp" android:text="06 · atividade — log ao vivo" />
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="260dp"
-        android:layout_marginTop="6dp"
-        android:background="#0d1116">
+        android:layout_marginTop="8dp"
+        android:background="@drawable/terminal_bg">
 
         <TextView
             android:id="@+id/logText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="10dp"
+            android:padding="12dp"
             android:fontFamily="monospace"
-            android:textColor="#8fa3a8"
+            android:textColor="@color/ink_dim"
             android:textSize="11sp" />
     </ScrollView>
 

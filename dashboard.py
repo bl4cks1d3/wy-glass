@@ -20,6 +20,8 @@ from tkinter import ttk
 
 import requests
 
+from version import __version__
+
 try:
     from websockets.sync.client import connect as ws_connect
 except ImportError:
@@ -296,7 +298,7 @@ class DashboardApp:
         title_box = tk.Frame(header, bg=BG0)
         title_box.pack(side="left", padx=(10, 0))
         tk.Label(title_box, text="WY GLASS", bg=BG0, fg=TEXT0, font=FONT_TITLE).pack(anchor="w")
-        tk.Label(title_box, text="CONTROL DECK", bg=BG0, fg=TEXT2, font=FONT_SUBTITLE).pack(anchor="w")
+        tk.Label(title_box, text=f"CONTROL DECK · v{__version__}", bg=BG0, fg=TEXT2, font=FONT_SUBTITLE).pack(anchor="w")
 
         self.status_dot = tk.Canvas(header, width=14, height=14, bg=BG0, highlightthickness=0)
         self.status_dot.pack(side="left", padx=(24, 4))
@@ -340,6 +342,16 @@ class DashboardApp:
             val = tk.Label(row, text="—", bg=BG1, fg=TEXT0, font=FONT_MONO, anchor="w")
             val.pack(side="left", fill="x", expand=True)
             self.dev_fields[key] = val
+
+        connect_row = tk.Frame(dev.body, bg=BG1)
+        connect_row.pack(fill="x", padx=12, pady=(4, 8))
+        self.connect_btn = tk.Button(
+            connect_row, text="CONECTAR", command=self._reconnect, bg=CYAN_DIM, fg=BG0,
+            activebackground=CYAN, font=FONT_MONO_BOLD, relief="flat", padx=14, pady=4, cursor="hand2",
+        )
+        self.connect_btn.pack(side="left")
+        self.connect_feedback = tk.Label(connect_row, text="", bg=BG1, fg=TEXT2, font=FONT_SUBTITLE)
+        self.connect_feedback.pack(side="left", padx=(10, 0))
 
         toggle_row = tk.Frame(dev.body, bg=BG1)
         toggle_row.pack(fill="x", padx=12, pady=(6, 4))
@@ -669,6 +681,12 @@ class DashboardApp:
         elif t == "actions_enabled":
             self.actions_enabled = bool(msg.get("enabled"))
             self._refresh_actions_btn()
+        elif t == "_connect_feedback":
+            self.connect_btn.config(state="normal")
+            ok = msg.get("ok", True)
+            self.connect_feedback.config(text=msg.get("text", ""), fg=GREEN if ok else RED)
+            if not msg.get("text"):
+                self.root.after(3000, lambda: self.connect_feedback.config(text=""))
 
     def _apply_config(self, cfg: dict):
         self.config_cache = cfg
@@ -731,6 +749,7 @@ class DashboardApp:
         color = GREEN if connected else RED
         self.status_dot.itemconfig(self._dot, fill=color)
         self.status_label.config(text=label, fg=color)
+        self.connect_btn.config(text="RECONECTAR" if connected else "CONECTAR")
 
     def _set_conversation(self, status: str):
         mapping = {
@@ -763,6 +782,24 @@ class DashboardApp:
         self.root.after(4000, lambda: self.save_feedback.config(text=""))
 
     # ---------- actions ----------
+
+    def _reconnect(self):
+        """One-click CONECTAR/RECONECTAR — asks server.py to drop whatever BLE client it holds
+        (if any) and start a fresh connect attempt right away (POST /api/reconnect), instead of
+        waiting for the automatic retry loop's own backoff. Same button also doubles as the way
+        to reclaim the connection from the phone app (see docs/10-app-android.md §10.9 — the
+        glasses only accept one BLE central at a time)."""
+        self.connect_btn.config(state="disabled")
+        self.connect_feedback.config(text="conectando...", fg=TEXT2)
+
+        def call():
+            try:
+                requests.post(f"{BASE_URL}/api/reconnect", timeout=5)
+                self.event_queue.put({"type": "_connect_feedback", "text": "", "ok": True})
+            except requests.RequestException as e:
+                self.event_queue.put({"type": "_connect_feedback", "text": f"falhou: {e}", "ok": False})
+
+        threading.Thread(target=call, daemon=True).start()
 
     def _toggle_actions(self):
         new_val = not self.actions_enabled

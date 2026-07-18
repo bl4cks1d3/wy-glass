@@ -1,0 +1,14 @@
+bleak
+fastapi
+uvicorn
+websockets
+python-multipart
+sounddevice
+numpy
+pillow
+keyboard
+requests
+beautifulsoup4
+piper-tts
+playwright
+pyinstaller

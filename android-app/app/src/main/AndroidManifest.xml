@@ -17,6 +17,16 @@
 
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
 
+    <!-- Package visibility (Android 11+/API 30+): without this, queryIntentActivities() for
+         MAIN/LAUNCHER only sees a handful of allow-listed apps instead of everything installed —
+         needed so the "open_app" agent tool can find/launch apps by name. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:label="@string/app_name"

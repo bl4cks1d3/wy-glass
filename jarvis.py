@@ -1,4 +1,5 @@
 import os
+import threading
 import time
 import wave
 import io
@@ -35,6 +36,21 @@ def get_api_key(params: dict) -> str:
     return key
 
 
+def play_beep(frequency: float = 880.0, duration: float = 0.12, volume: float = 0.25):
+    """Beep curto e sintetico (seno puro, sem Piper/onnxruntime — muito mais rapido que TTS)
+    tocado como confirmacao audivel de "comecei a escutar", toda vez que record_audio_vad() vai
+    abrir o microfone. Fade in/out de 10ms evita o estalo (click) que um tom cortado sem
+    transicao produziria no inicio/fim."""
+    t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
+    tone = (np.sin(2 * np.pi * frequency * t) * volume).astype(np.float32)
+    fade_len = min(len(tone) // 2, max(1, int(SAMPLE_RATE * 0.01)))
+    fade = np.linspace(0, 1, fade_len, dtype=np.float32)
+    tone[:fade_len] *= fade
+    tone[-fade_len:] *= fade[::-1]
+    sd.play(tone, samplerate=SAMPLE_RATE)
+    sd.wait()
+
+
 def record_audio(duration_seconds: float) -> bytes:
     recording = sd.rec(int(duration_seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16")
     sd.wait()
@@ -66,6 +82,10 @@ def record_audio_vad(
     If `capture_manager` is given, reads blocks from its shared queue instead of
     opening a dedicated sd.InputStream — required once other listeners (wake word,
     clap detection) hold the mic's single exclusive capture stream open."""
+    try:
+        play_beep()
+    except Exception:
+        pass  # beep e so uma confirmacao sonora — nunca deve impedir a gravacao de verdade
     chunk_size = max(1, int(SAMPLE_RATE * chunk_ms / 1000))
     silence_chunks_needed = max(1, int(silence_duration * 1000 / chunk_ms))
     max_chunks = max(1, int(max_duration * 1000 / chunk_ms))
@@ -104,6 +124,11 @@ def record_audio_vad(
                 chunk, _ = stream.read(chunk_size)
                 if process(chunk):
                     break
+
+    try:
+        play_beep(frequency=500.0)  # tom mais grave que o de inicio (880Hz) — "parei de escutar"
+    except Exception:
+        pass
 
     audio = np.concatenate(frames, axis=0) if frames else np.zeros((0, 1), dtype="int16")
     return audio.tobytes()
@@ -209,22 +234,59 @@ def _passive_listener_resume():
         pass
 
 
+_current_tts_process = None
+_tts_interrupted = False
+_current_tts_lock = threading.Lock()
+
+
 def speak(text: str, model_name: str):
     import subprocess
     import sys
+    global _current_tts_process, _tts_interrupted
     worker = Path(__file__).parent / "tts_worker.py"
     # Pause wake-word/clap listening while the TTS plays out of the same Bluetooth
     # speaker the mic listens on — otherwise the assistant's own voice can retrigger it.
     _passive_listener_pause()
+    # Popen (nao subprocess.run) de proposito: precisa do handle do processo pra poder matar
+    # (stop_speaking()) enquanto ainda esta tocando — clique no botao durante a reproducao corta
+    # a fala na hora, em vez de esperar terminar a frase inteira.
+    proc = subprocess.Popen(
+        [sys.executable, str(worker), text, model_name],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    with _current_tts_lock:
+        _current_tts_process = proc
+        _tts_interrupted = False
     try:
-        result = subprocess.run(
-            [sys.executable, str(worker), text, model_name],
-            capture_output=True, text=True, timeout=60,
-        )
+        try:
+            _, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            _, stderr = proc.communicate()
     finally:
+        with _current_tts_lock:
+            was_interrupted = _tts_interrupted
+            if _current_tts_process is proc:
+                _current_tts_process = None
         _passive_listener_resume()
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip()[-500:] or "tts_worker falhou sem mensagem")
+    # No Windows, Popen.kill() (TerminateProcess) normalmente devolve um returncode POSITIVO
+    # (nao negativo feito um sinal POSIX) — dai a flag explicita em vez de inspecionar o
+    # returncode: interrupcao de proposito via stop_speaking() nao e uma falha real do
+    # tts_worker, nao deve virar excecao/erro de turno.
+    if proc.returncode != 0 and not was_interrupted:
+        raise RuntimeError((stderr or "").strip()[-500:] or "tts_worker falhou sem mensagem")
+
+
+def stop_speaking():
+    """Corta a fala em andamento, se houver — chamado quando o usuario aperta o botao 2 durante
+    a reproducao. Idempotente: nao faz nada se nao tiver nenhum tts_worker rodando no momento."""
+    global _tts_interrupted
+    with _current_tts_lock:
+        proc = _current_tts_process
+        if proc is None or proc.poll() is not None:
+            return
+        _tts_interrupted = True
+    proc.kill()
 
 
 def run_jarvis(params: dict) -> str:

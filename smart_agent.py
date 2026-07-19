@@ -17,6 +17,7 @@ multi-agent routing) build on top of.
 import base64
 import io
 import json
+import re
 from datetime import datetime
 
 import requests
@@ -32,12 +33,33 @@ GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 # own open-weight model speaks clean OpenAI tool-calling natively, since it's
 # the same lineage as the format itself.
 GROQ_TEXT_MODEL = "openai/gpt-oss-20b"
-GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"  # Groq's free-tier vision model
+GROQ_VISION_MODEL = "qwen/qwen3.6-27b"  # Groq's free-tier vision model (llama-4-scout was retired)
 
 conversations: dict[str, list] = {}
+# Setado pela tool end_conversation, checado por server.py::conversation_loop apos cada turno —
+# unico jeito do modo conversa continua (clique duplo) parar sozinho quando o usuario se despede
+# por voz. Sem isso, o modelo so respondia educadamente ("Tchau, Sankofa") e o loop continuava
+# ouvindo de novo, preso repetindo despedida atras de despedida ate alguem lembrar de apertar o
+# botao 2 fisico.
+end_requested: dict[str, bool] = {}
 
 _WEEKDAYS_PT = ["segunda-feira", "terca-feira", "quarta-feira", "quinta-feira",
                 "sexta-feira", "sabado", "domingo"]
+
+# Rede de seguranca pro end_conversation: o Groq reconhece despedida na grande maioria dos
+# casos, mas depender 100% de uma tool call e fragil (o modelo pode simplesmente nao chamar a
+# ferramenta numa resposta). Esse regex e so um fallback determinístico — roda em cima do texto
+# transcrito do usuario, nao da resposta do modelo, entao nao importa se a ferramenta foi
+# chamada ou nao.
+_FAREWELL_PATTERN = re.compile(
+    r"\b(tchau\w*|at[ée] mais|at[ée] logo|falou|flw|pode (desligar|parar|encerrar)|"
+    r"encerr[ae] a conversa|(e|é) s[oó] isso( mesmo)?)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_farewell(text: str) -> bool:
+    return bool(_FAREWELL_PATTERN.search(text or ""))
 
 # --------------------------------------------------------------- tools -----
 # Fase 2 (roteiro) troca isto por um registro plugavel (skills descobertas por
@@ -80,8 +102,23 @@ TOOLS = [
         "function": {
             "name": "see_screen",
             "description": (
-                "Tira um print da tela do usuario e descreve o que esta sendo visto. "
-                "Use SOMENTE se o usuario pedir explicitamente pra ver/olhar/visualizar a tela dele."
+                "Tira um print da tela do usuario e DESCREVE em voz o que esta sendo visto (nao "
+                "salva arquivo nenhum). Use quando o usuario pedir pra ver/olhar/visualizar a "
+                "tela dele, ou perguntar o que tem na tela — nao quando ele pedir pra 'tirar um "
+                "print'/'salvar um print' (isso e take_screenshot)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "take_screenshot",
+            "description": (
+                "Tira um print da tela e SALVA como arquivo, sem descrever o conteudo em voz. "
+                "Use quando o usuario pedir explicitamente pra tirar/salvar/capturar um print ou "
+                "screenshot da tela — nao quando ele pedir pra ver/descrever a tela (isso e "
+                "see_screen)."
             ),
             "parameters": {"type": "object", "properties": {}},
         },
@@ -99,6 +136,20 @@ TOOLS = [
         "function": {
             "name": "open_dashboard",
             "description": "Abre o painel de controle/configuracoes dos oculos (Dashboard).",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "end_conversation",
+            "description": (
+                "Encerra a conversa continua atual (modo conversa por clique duplo). Use "
+                "SOMENTE quando o usuario se despedir claramente (tchau, ate mais, falou, pode "
+                "desligar, e so isso mesmo, obrigado/valeu como despedida final) ou pedir "
+                "explicitamente pra parar/encerrar a conversa. NUNCA use em resposta a uma "
+                "pergunta ou pedido normal."
+            ),
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -150,8 +201,9 @@ def ask_groq(api_key: str, system_prompt: str, messages: list, tools: list | Non
 
 
 def describe_screen(groq_api_key: str) -> str:
-    """Screenshot + Groq vision (Llama 4 Scout) — cloud, free tier, fast (avoids
-    running a vision model on this machine's CPU-only integrated GPU)."""
+    """Screenshot + Groq vision (Qwen3.6-27B, o vision model atual do free tier da Groq — o
+    antigo Llama 4 Scout foi aposentado) — cloud, rapido (evita rodar um modelo de visao na GPU
+    integrada desta maquina)."""
     img = ImageGrab.grab()
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -159,6 +211,11 @@ def describe_screen(groq_api_key: str) -> str:
     payload = {
         "model": GROQ_VISION_MODEL,
         "max_tokens": 300,
+        # Qwen3.6 e um modelo raciocinador — sem isso, ele devolve um bloco <think>...</think>
+        # (em ingles, com o raciocinio interno) embutido no proprio content, que seria falado em
+        # voz alta palavra por palavra. "none" e o unico valor (alem de "default") aceito por
+        # esse modelo — reasoning_effort="low" (usado pelo GROQ_TEXT_MODEL) da erro 400 aqui.
+        "reasoning_effort": "none",
         "messages": [{
             "role": "user",
             "content": [
@@ -173,7 +230,11 @@ def describe_screen(groq_api_key: str) -> str:
         GROQ_CHAT_URL, headers={"Authorization": f"Bearer {groq_api_key}"}, json=payload, timeout=30,
     )
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"].strip()
+    text = resp.json()["choices"][0]["message"]["content"].strip()
+    # rede de seguranca: se algum dia o modelo voltar a vazar um bloco de raciocinio mesmo com
+    # reasoning_effort="none", tira antes de mandar pro TTS.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    return text
 
 
 def build_system_prompt(user_name: str, user_role: str) -> str:
@@ -184,7 +245,7 @@ DATA E HORA ATUAIS (do relogio real da maquina, use isso pra saudacoes e qualque
 
 IMPORTANTE: NUNCA escreva indicacoes de cena, emocoes ou tags entre colchetes como [sarcastic] [formal] [amused] [dry] ou similares. Seu sarcasmo deve vir PURAMENTE da escolha das palavras. Tudo que voce escrever sera lido em voz alta.
 
-Voce tem ferramentas disponiveis (busca, abrir pagina, ver tela, noticias, abrir dashboard) — use SOMENTE quando fizer sentido pro pedido daquele turno especifico. NA GRANDE MAIORIA das respostas voce NAO vai chamar nenhuma ferramenta — so responda normalmente. Uma mensagem vaga tipo "e ai", "entao", "beleza", "ok" NUNCA repete a ferramenta do turno anterior por conta propria — trate como conversa normal, cada turno e avaliado sozinho.
+Voce tem ferramentas disponiveis (busca, abrir pagina, ver tela, tirar print, noticias, abrir dashboard, encerrar conversa) — use SOMENTE quando fizer sentido pro pedido daquele turno especifico. NA GRANDE MAIORIA das respostas voce NAO vai chamar nenhuma ferramenta — so responda normalmente. Uma mensagem vaga tipo "e ai", "entao", "beleza", "ok" NUNCA repete a ferramenta do turno anterior por conta propria — trate como conversa normal, cada turno e avaliado sozinho.
 
 QUANDO {user_name} disser "Jarvis activate" (E SOMENTE nesse caso especifico):
 - Cumprimente de acordo com o horario do dia informado acima (bom dia/boa tarde/boa noite, conforme a hora real).
@@ -212,11 +273,17 @@ def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str =
         return f"Aberto: {url}", True
     elif name == "see_screen":
         return describe_screen(groq_api_key), True
+    elif name == "take_screenshot":
+        import actions
+        actions.screenshot({})
+        return "Print salvo.", True
     elif name == "get_news":
         return browser_tools.fetch_news(), False
     elif name == "open_dashboard":
         import dashboard_launcher
         return dashboard_launcher.open_dashboard(), True
+    elif name == "end_conversation":
+        return "Até mais!", True
     return f"ferramenta desconhecida: {name}", False
 
 
@@ -227,6 +294,9 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
     through jarvis.speak() — no browser involved."""
     if session_id not in conversations:
         conversations[session_id] = []
+
+    if _looks_like_farewell(user_text):
+        end_requested[session_id] = True
 
     conversations[session_id].append({"role": "user", "content": user_text})
     history = conversations[session_id][-16:]
@@ -258,6 +328,8 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
             fn_args = {}
         if fn_name == "see_screen":
             jarvis.speak("Deixa eu dar uma olhada na sua tela.", tts_model)
+        if fn_name == "end_conversation":
+            end_requested[session_id] = True
 
         try:
             result, skip_summary = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key)

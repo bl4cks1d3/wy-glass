@@ -107,7 +107,24 @@ def _speak_blocking(text: str, tts_model: str):
     jarvis.speak(text, tts_model)
 
 
+def _pop_end_requested(session_id: str) -> bool:
+    """Mesmo motivo do _speak_blocking acima: import de smart_agent (que importa jarvis ->
+    sounddevice) sempre dentro de uma chamada por run_in_executor, nunca solto na thread do
+    event loop."""
+    import smart_agent
+    return smart_agent.end_requested.pop(session_id, False)
+
+
+def _stop_speaking_blocking():
+    import jarvis
+    jarvis.stop_speaking()
+
+
 async def stop_conversation(gesture_key: str, raw_hex: str):
+    # Corta a fala em andamento na hora, independente de ter conversa ativa ou nao — clique no
+    # botao 2 durante a reproducao interrompe o TTS imediatamente, em vez de esperar a frase
+    # inteira terminar antes de fazer efeito.
+    await asyncio.get_event_loop().run_in_executor(None, _stop_speaking_blocking)
     was_active = state.conversation_active
     state.conversation_active = False
     await broadcast({
@@ -135,6 +152,10 @@ async def conversation_loop(gesture_key: str, gcfg: dict):
     state.conversation_active = True
     await broadcast({"type": "conversation", "status": "started"})
     _passive_listener().pause()  # don't let wake word / clap detection compete for the mic
+    loop = asyncio.get_event_loop()
+    # session_id do open_jarvis_agent — usado pra checar se o proprio modelo pediu pra encerrar
+    # (usuario se despediu por voz), ver smart_agent.end_requested
+    session_id = gcfg.get("params", {}).get("session_id")
     try:
         while state.conversation_active:
             try:
@@ -142,6 +163,8 @@ async def conversation_loop(gesture_key: str, gcfg: dict):
                 await broadcast({"type": "action_result", "gesture": gesture_key, "ok": True, "message": result, "time": ts()})
             except Exception as e:
                 await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False, "message": str(e), "time": ts()})
+                break
+            if session_id and await loop.run_in_executor(None, _pop_end_requested, session_id):
                 break
     finally:
         _passive_listener().resume()
@@ -300,9 +323,48 @@ async def ble_manager():
         await asyncio.sleep(2)
 
 
+def _check_groq_models(api_key: str) -> list[str]:
+    """Confere se os modelos Groq fixados no codigo (smart_agent.GROQ_TEXT_MODEL/
+    GROQ_VISION_MODEL) ainda existem na conta. A Groq ja aposentou modelo sem aviso (see_screen
+    ficou quebrado silenciosamente por um tempo ate alguem notar) — melhor descobrir num log de
+    startup/healthcheck do que só quando o usuario tentar usar a funcao de verdade."""
+    import requests
+    import smart_agent
+    resp = requests.get(
+        "https://api.groq.com/openai/v1/models",
+        headers={"Authorization": f"Bearer {api_key}"}, timeout=10,
+    )
+    resp.raise_for_status()
+    available = {m["id"] for m in resp.json().get("data", [])}
+    wanted = {smart_agent.GROQ_TEXT_MODEL, smart_agent.GROQ_VISION_MODEL}
+    return sorted(wanted - available)
+
+
+async def groq_model_healthcheck():
+    """Roda pouco depois do startup (dando tempo do servidor terminar de subir) e depois a cada
+    6h. So loga/avisa no Dashboard — nunca derruba nada, so evita descoberta tardia."""
+    await asyncio.sleep(30)
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            groq_key = state.config.get("credentials", {}).get("groq_api_key", "")
+            if groq_key:
+                missing = await loop.run_in_executor(None, _check_groq_models, groq_key)
+                if missing:
+                    msg = (f"modelo(s) Groq configurado(s) no codigo nao encontrados na conta: "
+                           f"{', '.join(missing)} — pode ter sido descontinuado, ver smart_agent.py")
+                    print(f"[healthcheck] {msg}", flush=True)
+                    await broadcast({"type": "action_result", "gesture": "healthcheck",
+                                      "ok": False, "message": msg, "time": ts()})
+        except Exception as e:
+            print(f"[healthcheck] erro ao checar modelos Groq: {e}", flush=True)
+        await asyncio.sleep(6 * 3600)
+
+
 @app.on_event("startup")
 async def startup():
     state.ble_task = asyncio.create_task(ble_manager())
+    asyncio.create_task(groq_model_healthcheck())
 
 
 @app.on_event("shutdown")

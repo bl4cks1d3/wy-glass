@@ -61,6 +61,28 @@ _FAREWELL_PATTERN = re.compile(
 def _looks_like_farewell(text: str) -> bool:
     return bool(_FAREWELL_PATTERN.search(text or ""))
 
+
+def _is_self_echo(user_text: str, last_assistant_text: str) -> bool:
+    """Confirmado ao vivo (oculos open-ear, sem isolamento acustico entre alto-falante e mic):
+    o microfone as vezes capta a propria fala do TTS tocando, e o Whisper transcreve isso como
+    se fosse uma fala nova do usuario. Exemplo real: a resposta '...tenho um player embutido,
+    mas posso abrir um link de musica no YouTube se desejar.' voltou transcrita como suposta
+    fala do usuario 'leio o embutido, mas posso abrir um link de musica no YouTube se desejar' —
+    o Groq, tomando isso ao pe da letra, reexecutou a ferramenta mencionada na propria frase
+    ecoada (abriu o mesmo link de novo, em loop a cada eco subsequente).
+
+    Heuristica: normaliza os dois textos em conjuntos de palavras e mede sobreposicao — um eco
+    tem quase todo o vocabulario da fala original do assistente; uma fala nova do usuario, nao."""
+    if not last_assistant_text or not user_text:
+        return False
+    words = lambda s: set(re.findall(r"\w+", s.lower()))
+    u_words = words(user_text)
+    a_words = words(last_assistant_text)
+    if len(u_words) < 3:
+        return False  # frase curta demais pra decidir com confianca — deixa passar
+    overlap = len(u_words & a_words) / len(u_words)
+    return overlap >= 0.7
+
 # --------------------------------------------------------------- tools -----
 # Fase 2 (roteiro) troca isto por um registro plugavel (skills descobertas por
 # modulo, cada uma trazendo seu proprio schema); por ora e uma lista fixa.
@@ -295,6 +317,13 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
     if session_id not in conversations:
         conversations[session_id] = []
 
+    last_assistant_text = ""
+    if conversations[session_id] and conversations[session_id][-1].get("role") == "assistant":
+        last_assistant_text = conversations[session_id][-1].get("content", "")
+    if _is_self_echo(user_text, last_assistant_text):
+        print(f"[smart_agent] ignorando provavel eco do proprio TTS: {user_text!r}", flush=True)
+        return ""
+
     if _looks_like_farewell(user_text):
         end_requested[session_id] = True
 
@@ -342,14 +371,17 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
 
     if len(tool_calls) == 1 and all_skip_summary:
         # already a short, ready-to-speak answer — skip the extra Groq round-trip.
-        # open_url is the one exception: its result text is a raw URL, not
-        # meant to be read aloud — prefer whatever the model already said
-        # (which was already spoken above, if present — don't repeat it).
+        # already_spoken vale pra QUALQUER ferramenta (nao so open_url) — se o modelo mandou
+        # "content" junto com a tool_call, aquele texto ja foi falado la em cima (bloco "if
+        # message.get('content')"), e falar de novo aqui duplicava a fala (bug real: usuario
+        # ouvindo "Ate mais!" duas vezes no end_conversation, message.content='Tchau, Sankofa!'
+        # falado primeiro, e last_result='Ate mais!' falado de novo por engano logo em seguida).
+        already_spoken = bool(message.get("content"))
         if tool_calls[0]["function"]["name"] == "open_url":
-            already_spoken = bool(message.get("content"))
+            # open_url: seu resultado e uma URL crua, nao e pra ler em voz alta — prefere o que
+            # o modelo ja tiver dito, ou um "Aberto." generico se nao disse nada.
             reply = (message.get("content") or "Aberto.").strip()
         else:
-            already_spoken = False
             reply = (last_result or message.get("content") or "Pronto.").strip()
         conversations[session_id].append({"role": "assistant", "content": reply})
         if not already_spoken:

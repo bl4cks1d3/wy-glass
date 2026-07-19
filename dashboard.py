@@ -170,13 +170,20 @@ class GlassesLogo(tk.Canvas):
 
 
 class HudPanel(tk.Frame):
-    """A bordered panel with a title and small corner-bracket HUD decorations."""
+    """A bordered panel with a title and small corner-bracket HUD decorations. Pass on_clear
+    to get a small "limpar" button in the header (e.g. for a log panel)."""
 
-    def __init__(self, parent, title, **kw):
+    def __init__(self, parent, title, on_clear=None, **kw):
         super().__init__(parent, bg=BG1, highlightbackground=BORDER, highlightthickness=1, **kw)
         head = tk.Frame(self, bg=BG1)
         head.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(head, text=title, bg=BG1, fg=CYAN, font=FONT_SECTION).pack(side="left")
+        if on_clear is not None:
+            tk.Button(
+                head, text="limpar", command=on_clear, bg=BG2, fg=TEXT2,
+                activebackground=BG2, activeforeground=CYAN, font=FONT_MONO_SM,
+                relief="flat", padx=8, pady=1, bd=0, cursor="hand2",
+            ).pack(side="right", padx=(6, 0))
         line = tk.Frame(head, bg=BORDER, height=1)
         line.pack(side="left", fill="x", expand=True, padx=(8, 0), pady=6)
         self.body = tk.Frame(self, bg=BG1)
@@ -388,7 +395,7 @@ class DashboardApp:
         tk.Label(ges.body, text="duplo-clique numa linha para disparar o gesto manualmente", bg=BG1, fg=TEXT2,
                  font=FONT_SUBTITLE).pack(anchor="w", padx=10, pady=(0, 8))
 
-        log_wrap = HudPanel(parent, "EVENTOS AO VIVO")
+        log_wrap = HudPanel(parent, "EVENTOS AO VIVO", on_clear=self._clear_log)
         log_wrap.grid(row=1, column=1, sticky="nsew", padx=(6, 0), pady=6)
         self.log = tk.Text(log_wrap.body, bg=BG0, fg=TEXT0, font=("Consolas", 9), relief="flat",
                             wrap="word", state="disabled", padx=8, pady=6)
@@ -775,6 +782,11 @@ class DashboardApp:
         self.log.see("end")
         if int(self.log.index("end-1c").split(".")[0]) > 600:
             self.log.delete("1.0", "100.0")
+        self.log.config(state="disabled")
+
+    def _clear_log(self):
+        self.log.config(state="normal")
+        self.log.delete("1.0", "end")
         self.log.config(state="disabled")
 
     def _flash_feedback(self, text: str, ok: bool = True):

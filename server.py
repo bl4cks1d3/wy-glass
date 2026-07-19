@@ -96,6 +96,17 @@ async def run_action_async(action_type: str, params: dict) -> str:
     return await loop.run_in_executor(None, actions.run_action, action_type, merged)
 
 
+def _speak_blocking(text: str, tts_model: str):
+    """import + fala juntos numa so chamada, sempre disparada via run_in_executor — nunca
+    direto na thread do event loop. jarvis.py importa sounddevice, e a inicializacao do
+    WASAPI/PortAudio no Windows prende a THREAD QUE FEZ O IMPORT em COM modo STA ("Thread is
+    configured for Windows GUI"); se isso acontecer na thread do event loop asyncio, toda
+    reconexao BLE seguinte quebra (bleak exige MTA nessa mesma thread pro scanner WinRT). Mesma
+    causa raiz documentada em passive_listener.py._run()."""
+    import jarvis
+    jarvis.speak(text, tts_model)
+
+
 async def stop_conversation(gesture_key: str, raw_hex: str):
     was_active = state.conversation_active
     state.conversation_active = False
@@ -114,9 +125,8 @@ async def stop_conversation(gesture_key: str, raw_hex: str):
     tts_model = gcfg.get("params", {}).get("tts_model", "pt_BR-faber-medium.onnx")
     if farewell and state.config.get("actions_enabled", False):
         try:
-            import jarvis
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, jarvis.speak, farewell, tts_model)
+            await loop.run_in_executor(None, _speak_blocking, farewell, tts_model)
         except Exception as e:
             await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False, "message": str(e), "time": ts()})
 
@@ -220,6 +230,36 @@ def _on_passive_trigger(loop, gesture_key: str, note: str):
     )
 
 
+def _connect_greeting_blocking(user_name: str, tts_model: str, session_id: str):
+    """import + fala + marcar sessao, tudo numa chamada so — mesmo motivo do _speak_blocking
+    acima (jarvis e smart_agent ambos importam jarvis.py -> sounddevice; isso tem que acontecer
+    numa worker thread do executor, nunca na thread do event loop)."""
+    import jarvis
+    import smart_agent
+    greeting = smart_agent.greeting_text(user_name)
+    jarvis.speak(greeting, tts_model)
+    # marca a sessao como ja iniciada, senao o primeiro clique real repetiria a mesma saudacao
+    # de novo (open_jarvis_agent so cumprimenta se a sessao ainda nao existir)
+    smart_agent.conversations.setdefault(session_id, [])
+
+
+async def _speak_connect_greeting(loop):
+    """Falado toda vez que a conexao BLE sobe (primeira vez ou apos reconectar) — mesma saudacao
+    deterministica (sem chamada ao Groq) ja usada em smart_agent.greeting_text() na ativacao por
+    voz, reaproveitada aqui como confirmacao audivel de "oculos conectados" sem precisar apertar
+    nenhum botao. Roda como task solta (nao bloqueia start_notify logo em seguida)."""
+    if not state.config.get("actions_enabled", False):
+        return
+    try:
+        gcfg = state.config.get("gestures", {}).get("button1_single", {}).get("params", {})
+        session_id = gcfg.get("session_id", "wyglass")
+        user_name = gcfg.get("user_name", "sankofa")
+        tts_model = gcfg.get("tts_model", "pt_BR-faber-medium.onnx")
+        await loop.run_in_executor(None, _connect_greeting_blocking, user_name, tts_model, session_id)
+    except Exception as e:
+        print(f"[ble_manager] erro na saudacao de conexao: {e}", flush=True)
+
+
 async def ble_manager():
     loop = asyncio.get_event_loop()
     while True:
@@ -236,6 +276,7 @@ async def ble_manager():
                 state.connected = True
                 state.connected_at = time.monotonic()
                 await broadcast({"type": "status", "connected": True, "message": "conectado"})
+                asyncio.create_task(_speak_connect_greeting(loop))
 
                 # Started only after BLE's first successful WinRT/MTA init, not at process
                 # startup — sd.InputStream's own thread racing bleak's WinRT scanner during

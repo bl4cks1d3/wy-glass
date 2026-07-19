@@ -3,8 +3,6 @@ import time
 
 import numpy as np
 
-import audio_capture
-
 CHUNK_MS = 30.0
 
 
@@ -104,6 +102,15 @@ class PassiveListener:
             return self._pause_count > 0
 
     def _run(self):
+        # Import aqui dentro (nao no topo do arquivo) de proposito: audio_capture importa
+        # sounddevice, cuja inicializacao do WASAPI no Windows deixa a THREAD QUE FEZ O IMPORT
+        # presa em COM modo STA ("Thread is configured for Windows GUI"). PassiveListener.start()
+        # e chamado direto (sincrono) de dentro da coroutine ble_manager(), na thread do event
+        # loop asyncio — se o import acontecesse la, toda reconexao BLE subsequente (bleak exige
+        # MTA nessa mesma thread pro scanner WinRT) quebraria com esse erro exato. Importar aqui,
+        # dentro de _run() (que roda na thread dedicada criada por threading.Thread), mantem a
+        # contaminacao STA isolada nessa thread de audio, longe da thread do bleak.
+        import audio_capture
         mgr = audio_capture.get_capture_manager()
         q = mgr.subscribe()
         debug_max_rms = 0.0

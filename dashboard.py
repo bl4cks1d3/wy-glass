@@ -253,6 +253,10 @@ class DashboardApp:
         self.root.geometry("1000x760")
         self.root.minsize(820, 600)
         self.root.configure(bg=BG0)
+        try:
+            self.root.iconbitmap(str(BASE_DIR / "static" / "icon.ico"))
+        except tk.TclError:
+            pass  # icone e cosmetico — nunca deve impedir o dashboard de abrir
 
         self.event_queue: "queue.Queue[dict]" = queue.Queue()
         self.connected = False
@@ -880,6 +884,17 @@ class DashboardApp:
 
 
 def main():
+    # Sem isso, o Windows agrupa a janela pelo icone do proprio python.exe/pythonw.exe na
+    # barra de tarefas (mesmo com root.iconbitmap() certo — esse afeta a titlebar/alt-tab, mas
+    # nao necessariamente o icone da barra de tarefas). Dar um AppUserModelID proprio faz o
+    # Windows tratar isso como um app distinto, usando o icone da janela na barra de tarefas
+    # tambem. Tem que ser chamado ANTES de qualquer janela ser criada.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("WyGlass.Dashboard")
+        except Exception:
+            pass
     ensure_server_running()
     root = tk.Tk()
     DashboardApp(root)

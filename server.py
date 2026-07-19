@@ -462,4 +462,9 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
+    try:
+        import tray_icon
+        tray_icon.start()
+    except Exception as e:
+        print(f"[server] icone da bandeja nao iniciado: {e}", flush=True)
     uvicorn.run(app, host="127.0.0.1", port=8731, log_level="warning")

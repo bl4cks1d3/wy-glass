@@ -45,6 +45,7 @@ PACKAGE_IMPORT_NAMES = {
     "piper-tts": "piper",
     "playwright": "playwright",
     "pyinstaller": "PyInstaller",
+    "pystray": "pystray",
 }
 
 

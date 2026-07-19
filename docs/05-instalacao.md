@@ -129,3 +129,9 @@ python launchers/release.py --no-build      # só bump, sem recompilar os .exe
 ```
 
 Os `.exe` só *precisam* ser recompilados de novo se o próprio launcher-trampolim mudar (raro) ou no primeiro setup — mesmo assim o script recompila a cada bump por padrão, pra nunca deixar o `dist/` com um binário de versão anterior por esquecimento.
+
+## 5.10 Ícone e bandeja do sistema
+
+**Ícone**: `static/icon.ico`/`static/icon.png` — mesma silhueta de óculos usada no favicon web e no ícone do app Android, gerada uma vez com PIL a partir do mesmo path SVG (ver `static/landing.html`). Usado em três lugares: a janela do Dashboard (`dashboard.py`, via `root.iconbitmap()`), e os dois executáveis (`launchers/spec/*.spec`, parâmetro `icon=`). Sem um `AppUserModelID` próprio, o Windows por padrão agrupa a janela do Dashboard pelo ícone do `python.exe`/`pythonw.exe` na **barra de tarefas**, mesmo com `iconbitmap()` certo (que só resolve a titlebar/alt-tab) — por isso `dashboard.py` chama `ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(...)` antes de criar qualquer janela.
+
+**Ícone de bandeja** (`tray_icon.py`, dependência nova: `pystray`): o servidor (`server.py`, só quando rodado como `__main__`) sobe um ícone na bandeja do sistema numa thread dedicada — dá pra saber que o Wy Glass está ativo mesmo rodando oculto (`pythonw.exe`/`start_all.py`), e clicar nele abre o Dashboard direto (mesma lógica de `dashboard_launcher.open_dashboard()`, sem abrir duas janelas). Menu com "Abrir Dashboard" e "Sair" (encerra o processo do servidor inteiro).

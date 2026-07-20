@@ -354,6 +354,12 @@ class DashboardApp:
             val.pack(side="left", fill="x", expand=True)
             self.dev_fields[key] = val
 
+        batt_row = tk.Frame(dev.body, bg=BG1)
+        batt_row.pack(fill="x", padx=12, pady=2)
+        tk.Label(batt_row, text="BATERIA", bg=BG1, fg=TEXT1, font=FONT_MONO, width=10, anchor="w").pack(side="left")
+        self.battery_label = tk.Label(batt_row, text="—", bg=BG1, fg=TEXT2, font=FONT_MONO_BOLD, anchor="w")
+        self.battery_label.pack(side="left", fill="x", expand=True)
+
         connect_row = tk.Frame(dev.body, bg=BG1)
         connect_row.pack(fill="x", padx=12, pady=(4, 8))
         self.connect_btn = tk.Button(
@@ -689,6 +695,8 @@ class DashboardApp:
             self._append_log(msg.get("message", ""), "ok" if ok else "err")
         elif t == "conversation":
             self._set_conversation(msg.get("status", ""))
+        elif t == "battery":
+            self._set_battery(msg.get("percent"), msg.get("low"))
         elif t == "actions_enabled":
             self.actions_enabled = bool(msg.get("enabled"))
             self._refresh_actions_btn()
@@ -754,6 +762,18 @@ class DashboardApp:
     def _apply_status(self, status: dict):
         connected = bool(status.get("connected"))
         self._set_connected(connected, "CONECTADO" if connected else "DESCONECTADO")
+        if "battery_percent" in status:
+            self._set_battery(status.get("battery_percent"))
+
+    def _set_battery(self, percent, low=None):
+        if percent is None:
+            self.battery_label.config(text="—", fg=TEXT2)
+            return
+        if low is None:
+            threshold = self.config_cache.get("battery_low_threshold", 20)
+            low = percent <= threshold
+        color = RED if low else (AMBER if percent <= 50 else GREEN)
+        self.battery_label.config(text=f"{percent}%", fg=color)
 
     def _set_connected(self, connected: bool, label: str):
         self.connected = connected

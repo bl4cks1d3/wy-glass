@@ -71,6 +71,9 @@
   .dot{width:9px; height:9px; border-radius:50%; background:var(--text-2); flex-shrink:0;}
   .dot.on{background:var(--green); box-shadow:0 0 10px var(--green); animation:pulse 1.8s infinite;}
   .dot.off{background:var(--red); box-shadow:0 0 8px var(--red);}
+  .dot.batt-good{background:var(--green); box-shadow:0 0 10px var(--green);}
+  .dot.batt-warn{background:var(--amber); box-shadow:0 0 10px var(--amber);}
+  .dot.batt-low{background:var(--red); box-shadow:0 0 8px var(--red); animation:pulse 1.2s infinite;}
   @keyframes pulse{0%,100%{opacity:1;} 50%{opacity:0.35;}}
   .status-text{font-size:12px; letter-spacing:0.06em;}
   .status-text .msg{color:var(--text-1);}
@@ -173,6 +176,12 @@
     </div>
     <a class="navlink" href="/">← Wy Glass</a>
     <a class="navlink" href="/test">Painel de testes →</a>
+    <div class="status-pill" id="batterypill" style="display:none;">
+      <div class="dot" id="batterydot"></div>
+      <div class="status-text">
+        <span id="batterytext">--%</span> · <span class="msg">bateria</span>
+      </div>
+    </div>
     <div class="status-pill">
       <div class="dot off" id="statusdot"></div>
       <div class="status-text">
@@ -254,6 +263,11 @@ async function loadConfig(){
   document.getElementById('devfw').textContent = 'firmware ' + (config.firmware || '—') + ' · ' + config.device_address;
   renderGrid();
   setActionsToggle(!!config.actions_enabled);
+
+  const status = await (await fetch('/api/status')).json();
+  if (status.battery_percent !== null && status.battery_percent !== undefined){
+    setBattery(status.battery_percent, status.battery_percent <= status.battery_low_threshold);
+  }
 }
 
 function setActionsToggle(on){
@@ -363,6 +377,14 @@ function logLine(html){
   log.scrollTop = log.scrollHeight;
 }
 
+function setBattery(percent, low){
+  const pill = document.getElementById('batterypill');
+  pill.style.display = 'flex';
+  document.getElementById('batterytext').textContent = percent + '%';
+  const dot = document.getElementById('batterydot');
+  dot.className = 'dot ' + (low ? 'batt-low' : percent <= 50 ? 'batt-warn' : 'batt-good');
+}
+
 function connectWS(){
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = (ev) => {
@@ -371,6 +393,8 @@ function connectWS(){
       document.getElementById('statusdot').className = 'dot ' + (d.connected ? 'on' : 'off');
       document.getElementById('statustitle').textContent = d.connected ? 'CONECTADO' : 'DESCONECTADO';
       document.getElementById('statusmsg').textContent = d.message;
+    } else if (d.type === 'battery'){
+      setBattery(d.percent, d.low);
     } else if (d.type === 'raw'){
       logLine(`<span class="t">${d.time}</span><span class="tag raw">raw</span><span class="raw">${d.hex}</span>`);
     } else if (d.type === 'filtered'){

@@ -11,6 +11,7 @@ import uvicorn
 
 from bleak import BleakClient, BleakScanner
 import actions
+import battery
 from version import __version__
 # audio_capture/passive_listener import sounddevice, which touches COM/WinRT on import
 # (PortAudio's Windows device enumeration) — importing them at module load time, before
@@ -25,6 +26,12 @@ CONFIG_PATH = BASE_DIR / "config.json"
 MULTI_CLICK_WINDOW = 0.8   # seconds to wait for additional clicks of the same button
                             # (raised from 0.45s — live testing showed a real double-click on
                             # the physical button landing ~780ms apart, with margin to spare)
+
+BATTERY_POLL_INTERVAL = 120  # seconds — battery.read_battery_percent() shells out to
+                              # powershell and takes ~1-2s, so this stays well clear of that cost
+BATTERY_WARN_HYSTERESIS = 5   # % above the threshold required before a new low-battery
+                              # warning can fire again, so it doesn't re-trigger every poll
+                              # while sitting right at the threshold
 
 
 def load_config():
@@ -56,6 +63,8 @@ class State:
         self.counters = {"button1": ButtonCounter("button1"), "button2": ButtonCounter("button2")}
         self.conversation_active = False
         self.conversation_task = None
+        self.battery_percent: int | None = None
+        self.battery_low_warned = False
 
 
 state = State()
@@ -361,10 +370,48 @@ async def groq_model_healthcheck():
         await asyncio.sleep(6 * 3600)
 
 
+async def battery_monitor():
+    """Poll periodico do nivel de bateria (ver battery.py — cache do Windows, HFP, nao BLE).
+    Roda independente de state.connected: o Windows guarda esse valor pela conexao Bluetooth
+    classica, que sobrevive a ciclos de conexao/reconexao do nosso canal BLE proprio."""
+    loop = asyncio.get_event_loop()
+    while True:
+        try:
+            address = state.config["device_address"]
+            percent = await loop.run_in_executor(None, battery.read_battery_percent, address)
+            if percent is None:
+                print("[battery] leitura falhou (Windows sem esse dado ainda?)", flush=True)
+            if percent is not None and percent != state.battery_percent:
+                state.battery_percent = percent
+                threshold = state.config.get("battery_low_threshold", 20)
+                is_low = percent <= threshold
+                await broadcast({"type": "battery", "percent": percent, "low": is_low, "time": ts()})
+
+                if is_low and not state.battery_low_warned:
+                    state.battery_low_warned = True
+                    msg = f"Bateria dos óculos em {percent}%. Recarregue em breve."
+                    print(f"[battery] {msg}", flush=True)
+                    await broadcast({"type": "action_result", "gesture": "battery",
+                                      "ok": False, "message": msg, "time": ts()})
+                    if state.config.get("actions_enabled", False):
+                        gcfg = state.config.get("gestures", {}).get("button1_single", {}).get("params", {})
+                        tts_model = gcfg.get("tts_model", "pt_BR-faber-medium.onnx")
+                        try:
+                            await loop.run_in_executor(None, _speak_blocking, msg, tts_model)
+                        except Exception as e:
+                            print(f"[battery] erro ao avisar por voz: {e}", flush=True)
+                elif percent > threshold + BATTERY_WARN_HYSTERESIS:
+                    state.battery_low_warned = False
+        except Exception as e:
+            print(f"[battery] erro ao ler bateria: {e}", flush=True)
+        await asyncio.sleep(BATTERY_POLL_INTERVAL)
+
+
 @app.on_event("startup")
 async def startup():
     state.ble_task = asyncio.create_task(ble_manager())
     asyncio.create_task(groq_model_healthcheck())
+    asyncio.create_task(battery_monitor())
 
 
 @app.on_event("shutdown")
@@ -417,7 +464,9 @@ async def set_actions_enabled(body: dict):
 async def get_status():
     return {"connected": state.connected, "device_address": state.config["device_address"],
              "device_name": state.config.get("device_name"), "firmware": state.config.get("firmware"),
-             "actions_enabled": state.config.get("actions_enabled", False), "app_version": __version__}
+             "actions_enabled": state.config.get("actions_enabled", False), "app_version": __version__,
+             "battery_percent": state.battery_percent,
+             "battery_low_threshold": state.config.get("battery_low_threshold", 20)}
 
 
 @app.post("/api/test/{gesture_key}")
@@ -454,6 +503,10 @@ async def websocket_endpoint(ws: WebSocket):
         "connected": state.connected,
         "message": "conectado" if state.connected else "aguardando conexao...",
     })
+    if state.battery_percent is not None:
+        threshold = state.config.get("battery_low_threshold", 20)
+        await ws.send_json({"type": "battery", "percent": state.battery_percent,
+                              "low": state.battery_percent <= threshold})
     try:
         while True:
             await ws.receive_text()

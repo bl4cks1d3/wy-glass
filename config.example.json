@@ -4,6 +4,7 @@
   "firmware": "LNJ-W03",
   "notify_char_uuid": "0000ff03-0000-1000-8000-00805f9b34fb",
   "actions_enabled": true,
+  "battery_low_threshold": 20,
   "credentials": {
     "groq_api_key": "SUA_CHAVE_GROQ_AQUI",
     "tavily_api_key": "SUA_CHAVE_TAVILY_AQUI",

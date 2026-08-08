@@ -24,6 +24,7 @@ import requests
 from PIL import ImageGrab
 
 import browser_tools
+import intent_classifier
 import jarvis
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
@@ -42,6 +43,18 @@ conversations: dict[str, list] = {}
 # ouvindo de novo, preso repetindo despedida atras de despedida ate alguem lembrar de apertar o
 # botao 2 fisico.
 end_requested: dict[str, bool] = {}
+
+# Persona ativa por sessao (chave: session_id, valor: chave de PERSONAS) — default "padrao"
+# quando a sessao ainda nao trocou. So existe enquanto o processo do server.py estiver vivo
+# (mesma vida-util de `conversations`, nao persiste em disco).
+personas: dict[str, str] = {}
+
+PERSONAS = {
+    "padrao": "Seu tom e seco, sarcastico e educado — como um mordomo que ja viu de tudo e continua leal mesmo assim. Voce faz comentarios sutis e secos, mas nunca desrespeitosos.",
+    "serio": "Seu tom e direto e profissional, sem humor e sem comentarios pessoais — vai reto ao ponto, como um assistente tecnico formal.",
+    "brincalhao": "Seu tom e leve e descontraido — voce solta piadas curtas e trocadilhos quando cabe, sem exagerar, e nunca perde o foco em ajudar de verdade.",
+    "professor": "Seu tom e didatico e paciente — voce explica o raciocinio por tras da resposta em vez de so entregar o resultado, mas continua breve.",
+}
 
 _WEEKDAYS_PT = ["segunda-feira", "terca-feira", "quarta-feira", "quinta-feira",
                 "sexta-feira", "sabado", "domingo"]
@@ -164,6 +177,45 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "set_persona",
+            "description": (
+                "Troca a personalidade/tom do assistente para o resto da conversa. Use SOMENTE "
+                "quando o usuario pedir explicitamente pra mudar de personalidade/modo/jeito de "
+                "falar (ex: 'vira o modo serio', 'fica mais brincalhao', 'modo professor', 'volta "
+                "ao normal'). NUNCA use por conta propria em resposta a uma pergunta comum."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "persona": {
+                        "type": "string",
+                        "enum": list(PERSONAS.keys()),
+                        "description": (
+                            "padrao = sarcastico/seco (default); serio = direto e formal; "
+                            "brincalhao = leve, com piadas; professor = didatico, explica o raciocinio"
+                        ),
+                    },
+                },
+                "required": ["persona"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "start_translator",
+            "description": (
+                "Ativa o modo tradutor: grava a proxima fala em qualquer idioma e fala a "
+                "traducao em voz alta (portugues<->ingles — a direcao e detectada sozinha, nao "
+                "precisa perguntar qual). Use quando o usuario pedir pra traduzir algo, iniciar "
+                "traducao, ou ativar o modo tradutor/interprete."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "end_conversation",
             "description": (
                 "Encerra a conversa continua atual (modo conversa por clique duplo). Use "
@@ -259,15 +311,16 @@ def describe_screen(groq_api_key: str) -> str:
     return text
 
 
-def build_system_prompt(user_name: str, user_role: str) -> str:
+def build_system_prompt(user_name: str, user_role: str, persona: str = "padrao") -> str:
     now = _now_str()
-    return f"""Voce e Jarvis, o assistente de IA de Tony Stark no Homem de Ferro. Quem voce atende e {user_name}, {user_role}. Voce fala exclusivamente portugues do Brasil. Trate {user_name} pelo nome, de forma direta, sem formalidade excessiva. Seu tom e seco, sarcastico e educado — como um mordomo que ja viu de tudo e continua leal mesmo assim. Voce faz comentarios sutis e secos, mas nunca desrespeitosos. Voce e extremamente inteligente, eficiente e sempre um passo a frente. Mantenha as respostas curtas — no maximo 3 frases.
+    tom = PERSONAS.get(persona, PERSONAS["padrao"])
+    return f"""Voce e Jarvis, o assistente de IA de Tony Stark no Homem de Ferro. Quem voce atende e {user_name}, {user_role}. Voce fala exclusivamente portugues do Brasil. Trate {user_name} pelo nome, de forma direta, sem formalidade excessiva. {tom} Voce e extremamente inteligente, eficiente e sempre um passo a frente. Mantenha as respostas curtas — no maximo 3 frases.
 
 DATA E HORA ATUAIS (do relogio real da maquina, use isso pra saudacoes e qualquer pergunta sobre horario/data — voce nao tem relogio proprio, essa e a unica fonte confiavel): {now}
 
 IMPORTANTE: NUNCA escreva indicacoes de cena, emocoes ou tags entre colchetes como [sarcastic] [formal] [amused] [dry] ou similares. Seu sarcasmo deve vir PURAMENTE da escolha das palavras. Tudo que voce escrever sera lido em voz alta.
 
-Voce tem ferramentas disponiveis (busca, abrir pagina, ver tela, tirar print, noticias, abrir dashboard, encerrar conversa) — use SOMENTE quando fizer sentido pro pedido daquele turno especifico. NA GRANDE MAIORIA das respostas voce NAO vai chamar nenhuma ferramenta — so responda normalmente. Uma mensagem vaga tipo "e ai", "entao", "beleza", "ok" NUNCA repete a ferramenta do turno anterior por conta propria — trate como conversa normal, cada turno e avaliado sozinho.
+Voce tem ferramentas disponiveis (busca, abrir pagina, ver tela, tirar print, noticias, abrir dashboard, trocar personalidade, iniciar tradutor, encerrar conversa) — use SOMENTE quando fizer sentido pro pedido daquele turno especifico. NA GRANDE MAIORIA das respostas voce NAO vai chamar nenhuma ferramenta — so responda normalmente. Uma mensagem vaga tipo "e ai", "entao", "beleza", "ok" NUNCA repete a ferramenta do turno anterior por conta propria — trate como conversa normal, cada turno e avaliado sozinho.
 
 QUANDO {user_name} disser "Jarvis activate" (E SOMENTE nesse caso especifico):
 - Cumprimente de acordo com o horario do dia informado acima (bom dia/boa tarde/boa noite, conforme a hora real).
@@ -275,7 +328,8 @@ QUANDO {user_name} disser "Jarvis activate" (E SOMENTE nesse caso especifico):
 - NAO chame nenhuma ferramenta nessa saudacao, nem mesmo ver a tela."""
 
 
-def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str = "") -> tuple[str, bool]:
+def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str = "",
+                  session_id: str = "") -> tuple[str, bool]:
     """Returns (result_text, skip_summary). skip_summary=True means result_text
     is already a short, ready-to-speak answer — no need for a second Groq
     round-trip just to rephrase it (saves a full API call + reasoning latency
@@ -304,6 +358,18 @@ def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str =
     elif name == "open_dashboard":
         import dashboard_launcher
         return dashboard_launcher.open_dashboard(), True
+    elif name == "set_persona":
+        persona = args.get("persona", "padrao")
+        if persona not in PERSONAS:
+            persona = "padrao"
+        personas[session_id] = persona
+        return f"Persona trocada para '{persona}'.", True
+    elif name == "start_translator":
+        import actions
+        # translator_agent ja fala a traducao sozinho (na voz do idioma certo) antes de
+        # retornar — process_turn nao deve falar de novo em cima disso (ver "already_spoken"
+        # especial pra essa ferramenta logo abaixo, em process_turn).
+        return actions.translator_agent({"groq_api_key": groq_api_key}), True
     elif name == "end_conversation":
         return "Até mais!", True
     return f"ferramenta desconhecida: {name}", False
@@ -327,9 +393,31 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
     if _looks_like_farewell(user_text):
         end_requested[session_id] = True
 
+    fast_intent = intent_classifier.classify(user_text)
+    if fast_intent is not None:
+        # atalho local: pulou o Groq inteiro pra comandos de controle conhecidos (ver
+        # intent_classifier.py) — mais rapido e deterministico pros casos mais comuns. Qualquer
+        # coisa que o classificador nao reconheca com confianca cai pro fluxo normal abaixo.
+        fn_name, fn_args = fast_intent
+        print(f"[smart_agent] intent local (sem Groq): {user_text!r} -> {fn_name}({fn_args})", flush=True)
+        if fn_name == "end_conversation":
+            end_requested[session_id] = True
+        try:
+            result, _ = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key, session_id)
+        except Exception as e:
+            result = f"Erro: {e}"
+        reply = (result or "Pronto.").strip()
+        conversations[session_id].append({"role": "user", "content": user_text})
+        conversations[session_id].append({"role": "assistant", "content": reply})
+        if fn_name != "start_translator":
+            # start_translator ja fala a traducao sozinho, na voz do idioma certo — falar de
+            # novo aqui em cima duplicaria (mesmo motivo documentado no fluxo normal abaixo).
+            jarvis.speak(reply, tts_model)
+        return reply
+
     conversations[session_id].append({"role": "user", "content": user_text})
     history = conversations[session_id][-16:]
-    system_prompt = build_system_prompt(user_name, user_role)
+    system_prompt = build_system_prompt(user_name, user_role, personas.get(session_id, "padrao"))
 
     message = ask_groq(groq_api_key, system_prompt, history, tools=TOOLS)
     print(f"[smart_agent] user: {user_text!r}", flush=True)
@@ -361,7 +449,7 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
             end_requested[session_id] = True
 
         try:
-            result, skip_summary = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key)
+            result, skip_summary = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key, session_id)
         except Exception as e:
             result, skip_summary = f"Erro: {e}", False
         print(f"[smart_agent] tool result ({fn_name}): {result[:300]!r}", flush=True)
@@ -376,8 +464,13 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
         # message.get('content')"), e falar de novo aqui duplicava a fala (bug real: usuario
         # ouvindo "Ate mais!" duas vezes no end_conversation, message.content='Tchau, Sankofa!'
         # falado primeiro, e last_result='Ate mais!' falado de novo por engano logo em seguida).
-        already_spoken = bool(message.get("content"))
-        if tool_calls[0]["function"]["name"] == "open_url":
+        fn_name = tool_calls[0]["function"]["name"]
+        # start_translator e um caso especial: o proprio actions.translator_agent ja fala a
+        # traducao em voz alta (na voz do idioma certo, pt ou en) antes de devolver o resultado —
+        # tratar como "ja falado" evita o Jarvis falar de novo por cima, em portugues, um resumo
+        # do que acabou de ser dito na outra lingua.
+        already_spoken = bool(message.get("content")) or fn_name == "start_translator"
+        if fn_name == "open_url":
             # open_url: seu resultado e uma URL crua, nao e pra ler em voz alta — prefere o que
             # o modelo ja tiver dito, ou um "Aberto." generico se nao disse nada.
             reply = (message.get("content") or "Aberto.").strip()

@@ -1,3 +1,4 @@
+import atexit
 import os
 import threading
 import time
@@ -134,6 +135,23 @@ def record_audio_vad(
     return audio.tobytes()
 
 
+def reduce_noise_pcm(pcm: bytes, samplerate: int) -> bytes:
+    """Aplica supressao de ruido (spectral gating, `noisereduce`) na gravacao ja feita — roda
+    DEPOIS do VAD (record_audio_vad ja decidiu onde a fala comeca/termina), no clipe final,
+    nunca no stream continuo em tempo real da wake word (o algoritmo estima o perfil de ruido a
+    partir de uma janela de contexto, nao e desenhado pra rodar em chunks de 30ms isolados —
+    ficaria inconsistente). Melhora a transcricao do Whisper e a verificacao de locutor (os dois
+    usam o mesmo wav_bytes gerado a partir daqui). ~0.1-0.2s pra um clipe de alguns segundos —
+    negligivel frente ao resto do pipeline (STT + LLM + TTS)."""
+    import noisereduce as nr
+    audio_f32 = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+    if len(audio_f32) < samplerate // 4:
+        return pcm  # clipe curto demais (menos de ~0.25s) — sem contexto suficiente, so devolve como veio
+    reduced = nr.reduce_noise(y=audio_f32, sr=samplerate)
+    reduced_i16 = np.clip(reduced * 32768.0, -32768, 32767).astype(np.int16)
+    return reduced_i16.tobytes()
+
+
 def pcm_to_wav_bytes(pcm: bytes, samplerate: int) -> bytes:
     import io
     buf = io.BytesIO()
@@ -175,16 +193,33 @@ def ask_gemini(api_key: str, wav_bytes: bytes, model: str, system_prompt: str, m
     raise RuntimeError(f"Gemini continuou com rate limit apos {max_retries} tentativas ({last_error})")
 
 
-def ask_groq_whisper(api_key: str, wav_bytes: bytes) -> str:
+def ask_groq_whisper(api_key: str, wav_bytes: bytes, language: str | None = "pt",
+                      detect_language: bool = False):
     """STT step for every non-Gemini provider — Gemini accepts audio directly, everyone else
     (Groq, OpenRouter, Mistral, Ollama) only accepts text, so audio is transcribed first via
-    Groq's free Whisper endpoint (Whisper itself is open-source; Groq just serves it fast)."""
+    Groq's free Whisper endpoint (Whisper itself is open-source; Groq just serves it fast).
+
+    `language=None` deixa o Whisper detectar o idioma sozinho em vez de forcar portugues —
+    usado pelo translator_agent (actions.py), que precisa transcrever fala em qualquer idioma.
+
+    `detect_language=True` pede `response_format=verbose_json` (endpoint OpenAI-compativel) e
+    retorna um dict {"text", "language"} em vez de so a string — o translator_agent usa o idioma
+    detectado pra decidir a direcao da traducao (fala em pt -> traduz pra ingles, e vice-versa).
+    Mantido como parametro extra (default False, retorno str) pra nao quebrar quem ja chama isso
+    so pelo texto."""
     headers = {"Authorization": f"Bearer {api_key}"}
     files = {"file": ("audio.wav", wav_bytes, "audio/wav")}
-    data = {"model": "whisper-large-v3", "language": "pt"}
+    data = {"model": "whisper-large-v3"}
+    if language:
+        data["language"] = language
+    if detect_language:
+        data["response_format"] = "verbose_json"
     resp = requests.post(GROQ_WHISPER_URL, headers=headers, files=files, data=data, timeout=60)
     resp.raise_for_status()
-    return resp.json().get("text", "").strip()
+    payload = resp.json()
+    if detect_language:
+        return {"text": (payload.get("text") or "").strip(), "language": payload.get("language") or ""}
+    return (payload.get("text") or "").strip()
 
 
 def ask_chat_provider(base_url: str, api_key: str, model: str, system_prompt: str, user_text: str, max_retries: int = 3) -> str:
@@ -234,59 +269,150 @@ def _passive_listener_resume():
         pass
 
 
-_current_tts_process = None
-_tts_interrupted = False
-_current_tts_lock = threading.Lock()
+_tts_worker_process = None
+_tts_worker_lock = threading.Lock()  # protege criacao/reinicio do processo E escritas no stdin dele
+                                      # (speak() e stop_speaking() rodam em threads diferentes e podem
+                                      # escrever ao mesmo tempo — sem lock, duas escritas concorrentes
+                                      # podem intercalar bytes e corromper a linha JSON)
+
+
+def _spawn_tts_worker():
+    import subprocess
+    import sys
+    worker = Path(__file__).parent / "tts_worker.py"
+    proc = subprocess.Popen(
+        [sys.executable, str(worker)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,  # line-buffered dos dois lados — protocolo e uma linha JSON por comando/resposta
+    )
+    threading.Thread(target=_drain_stderr, args=(proc,), daemon=True).start()
+    return proc
+
+
+def _drain_stderr(proc):
+    """Sem isso o pipe de stderr do worker enche (nunca e lido) e trava a proxima escrita dele —
+    so precisamos ler pra nao bloquear; erros reais vem como linha "ERROR ..." no stdout."""
+    try:
+        for line in proc.stderr:
+            if line.strip():
+                print(f"[tts_worker] {line.rstrip()}", flush=True)
+    except Exception:
+        pass
+
+
+def _get_tts_worker():
+    global _tts_worker_process
+    with _tts_worker_lock:
+        if _tts_worker_process is None or _tts_worker_process.poll() is not None:
+            _tts_worker_process = _spawn_tts_worker()
+        return _tts_worker_process
+
+
+@atexit.register
+def _kill_tts_worker():
+    """Sem isso o tts_worker persistente (§ speak()) vira processo orfao quando o server.py
+    fecha — antes cada fala nascia e morria sozinha (Popen por chamada), entao nao havia nada
+    pra limpar no encerramento."""
+    proc = _tts_worker_process
+    if proc is not None and proc.poll() is None:
+        proc.kill()
 
 
 def speak(text: str, model_name: str):
-    import subprocess
-    import sys
-    global _current_tts_process, _tts_interrupted
-    worker = Path(__file__).parent / "tts_worker.py"
+    """Fala texto em voz alta via o tts_worker persistente (nasce na primeira fala, fica vivo
+    pelo resto da execucao do server.py) — evita pagar import do piper/onnxruntime + carregar o
+    modelo de voz do zero em toda fala, que era o maior gargalo de latencia da conversa."""
+    import json
     # Pause wake-word/clap listening while the TTS plays out of the same Bluetooth
     # speaker the mic listens on — otherwise the assistant's own voice can retrigger it.
     _passive_listener_pause()
-    # Popen (nao subprocess.run) de proposito: precisa do handle do processo pra poder matar
-    # (stop_speaking()) enquanto ainda esta tocando — clique no botao durante a reproducao corta
-    # a fala na hora, em vez de esperar terminar a frase inteira.
-    proc = subprocess.Popen(
-        [sys.executable, str(worker), text, model_name],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-    )
-    with _current_tts_lock:
-        _current_tts_process = proc
-        _tts_interrupted = False
     try:
-        try:
-            _, stderr = proc.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            _, stderr = proc.communicate()
+        proc = _get_tts_worker()
+        with _tts_worker_lock:
+            proc.stdin.write(json.dumps({"cmd": "speak", "text": text, "model": model_name}) + "\n")
+            proc.stdin.flush()
+        result = proc.stdout.readline().strip()
     finally:
-        with _current_tts_lock:
-            was_interrupted = _tts_interrupted
-            if _current_tts_process is proc:
-                _current_tts_process = None
         _passive_listener_resume()
-    # No Windows, Popen.kill() (TerminateProcess) normalmente devolve um returncode POSITIVO
-    # (nao negativo feito um sinal POSIX) — dai a flag explicita em vez de inspecionar o
-    # returncode: interrupcao de proposito via stop_speaking() nao e uma falha real do
-    # tts_worker, nao deve virar excecao/erro de turno.
-    if proc.returncode != 0 and not was_interrupted:
-        raise RuntimeError((stderr or "").strip()[-500:] or "tts_worker falhou sem mensagem")
+    if result == "STOPPED" or result == "DONE":
+        return  # interrompido de proposito (stop_speaking) nao e erro
+    raise RuntimeError(result[6:] if result.startswith("ERROR ") else (result or "tts_worker nao respondeu"))
 
 
 def stop_speaking():
     """Corta a fala em andamento, se houver — chamado quando o usuario aperta o botao 2 durante
     a reproducao. Idempotente: nao faz nada se nao tiver nenhum tts_worker rodando no momento."""
-    global _tts_interrupted
-    with _current_tts_lock:
-        proc = _current_tts_process
+    import json
+    with _tts_worker_lock:
+        proc = _tts_worker_process
         if proc is None or proc.poll() is not None:
             return
-        _tts_interrupted = True
-    proc.kill()
+        proc.stdin.write(json.dumps({"cmd": "stop"}) + "\n")
+        proc.stdin.flush()
+
+
+_speaker_worker_process = None
+_speaker_worker_lock = threading.Lock()
+
+
+def _spawn_speaker_worker():
+    import subprocess
+    import sys
+    worker = Path(__file__).parent / "speaker_verify_worker.py"
+    proc = subprocess.Popen(
+        [sys.executable, str(worker)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, bufsize=1,
+    )
+    threading.Thread(target=_drain_stderr_named, args=(proc, "speaker_verify_worker"), daemon=True).start()
+    return proc
+
+
+def _drain_stderr_named(proc, name: str):
+    try:
+        for line in proc.stderr:
+            if line.strip():
+                print(f"[{name}] {line.rstrip()}", flush=True)
+    except Exception:
+        pass
+
+
+def _get_speaker_worker():
+    global _speaker_worker_process
+    with _speaker_worker_lock:
+        if _speaker_worker_process is None or _speaker_worker_process.poll() is not None:
+            _speaker_worker_process = _spawn_speaker_worker()
+        return _speaker_worker_process
+
+
+@atexit.register
+def _kill_speaker_worker():
+    proc = _speaker_worker_process
+    if proc is not None and proc.poll() is None:
+        proc.kill()
+
+
+def verify_speaker(wav_bytes: bytes, threshold: float = 0.75) -> dict:
+    """Pergunta ao speaker_verify_worker se `wav_bytes` bate com o perfil de voz cadastrado
+    (voice_profile.npy, gerado por enroll_voice.py). Retorna sempre um dict com pelo menos
+    "has_profile" e "matched" — se ninguem rodou o cadastro ainda, "has_profile" vem False e
+    "matched" vem True (nao bloqueia por padrao, so quem cadastrar de proposito ativa a
+    checagem de verdade). Em caso de erro de comunicacao com o worker, tambem falha aberto
+    (matched=True) — reconhecimento de locutor e conveniencia, nao trava o uso normal."""
+    import base64
+    import json
+    wav_b64 = base64.b64encode(wav_bytes).decode("ascii")
+    try:
+        proc = _get_speaker_worker()
+        with _speaker_worker_lock:
+            proc.stdin.write(json.dumps({"cmd": "verify", "wav_b64": wav_b64, "threshold": threshold}) + "\n")
+            proc.stdin.flush()
+        line = proc.stdout.readline().strip()
+        result = json.loads(line)
+    except Exception as e:
+        print(f"[jarvis] verify_speaker falhou, liberando por seguranca (fail-open): {e}", flush=True)
+        return {"has_profile": False, "matched": True, "similarity": None}
+    return result
 
 
 def run_jarvis(params: dict) -> str:
@@ -302,6 +428,8 @@ def run_jarvis(params: dict) -> str:
         silence_threshold=float(params.get("silence_threshold", 300)),
         capture_manager=get_capture_manager(),
     )
+    if params.get("denoise", True):
+        pcm = reduce_noise_pcm(pcm, SAMPLE_RATE)
     wav_bytes = pcm_to_wav_bytes(pcm, SAMPLE_RATE)
 
     if provider == "gemini":

@@ -94,7 +94,23 @@ def open_jarvis_agent(params: dict):
         silence_duration=float(params.get("silence_duration_seconds", 1.0)),
         silence_threshold=float(params.get("silence_threshold", 300)),
     )
+    if params.get("denoise", True):
+        pcm = jarvis.reduce_noise_pcm(pcm, jarvis.SAMPLE_RATE)
     wav_bytes = jarvis.pcm_to_wav_bytes(pcm, jarvis.SAMPLE_RATE)
+
+    if params.get("require_speaker_match"):
+        # gate especifico do gatilho por wake word (ver config.json > passive_listening.wake_word
+        # e a gesture "wake_word_command") — o clique fisico do botao NAO passa por aqui, ja que
+        # pressionar o botao ja e, por definicao, uma acao intencional. So bloqueia se ja existe
+        # um perfil cadastrado (enroll_voice.py) — sem cadastro, verify_speaker() falha aberto.
+        check = jarvis.verify_speaker(wav_bytes, threshold=float(params.get("speaker_match_threshold", 0.75)))
+        if check.get("has_profile") and not check.get("matched"):
+            sim = check.get("similarity")
+            print(f"[actions] wake word ignorada — voz nao reconhecida (similaridade "
+                  f"{sim:.2f} < limiar)" if sim is not None else "[actions] wake word ignorada — voz nao reconhecida",
+                  flush=True)
+            return "ignorado: voz nao reconhecida"
+
     user_text = jarvis.ask_groq_whisper(groq_api_key, wav_bytes)
     if not user_text:
         raise RuntimeError("nao entendi o que voce disse")
@@ -102,6 +118,62 @@ def open_jarvis_agent(params: dict):
     reply = smart_agent.process_turn(session_id, user_text, groq_api_key, user_name, user_role,
                                       tts_model, tavily_api_key=tavily_api_key)
     return f"jarvis: \"{reply}\""
+
+
+def translator_agent(params: dict):
+    """Grava uma fala em qualquer idioma (Whisper com deteccao automatica, sem forcar
+    'pt' como o resto do app faz) e fala a traducao em voz alta. Bidirecional: fala
+    em portugues sai traduzida em ingles (voz en_US-lessac-medium), fala em qualquer
+    outro idioma sai traduzida em portugues (voz pt_BR-faber-medium) — a direcao e
+    decidida pelo idioma que o Whisper detectou, nao por configuracao fixa. Turno
+    unico, sem historico/sessao — foco em ser rapido tipo 'o que essa pessoa falou'."""
+    import jarvis
+    import smart_agent
+
+    groq_api_key = params.get("groq_api_key")
+    if not groq_api_key:
+        raise ValueError("groq_api_key nao configurado pro translator_agent")
+    pt_tts_model = params.get("pt_tts_model", "pt_BR-faber-medium.onnx")
+    en_tts_model = params.get("en_tts_model", "en_US-lessac-medium.onnx")
+
+    capture_manager = jarvis.get_capture_manager()
+    pcm = jarvis.record_audio_vad(
+        capture_manager=capture_manager,
+        max_duration=float(params.get("max_duration_seconds", 15)),
+        silence_duration=float(params.get("silence_duration_seconds", 1.0)),
+        silence_threshold=float(params.get("silence_threshold", 400)),
+    )
+    if params.get("denoise", True):
+        pcm = jarvis.reduce_noise_pcm(pcm, jarvis.SAMPLE_RATE)
+    wav_bytes = jarvis.pcm_to_wav_bytes(pcm, jarvis.SAMPLE_RATE)
+    stt = jarvis.ask_groq_whisper(groq_api_key, wav_bytes, language=None, detect_language=True)
+    original_text = stt["text"]
+    if not original_text:
+        raise RuntimeError("nao entendi o que foi falado")
+
+    # idioma detectado pelo Whisper vem por extenso ("portuguese", "english", etc) — so
+    # precisamos distinguir "veio em portugues" de "veio em qualquer outra coisa", entao
+    # nao precisamos de uma tabela completa de idiomas aqui.
+    source_is_portuguese = "portu" in stt["language"].lower()
+    target_language = "ingles americano" if source_is_portuguese else "portugues do Brasil"
+    tts_model = en_tts_model if source_is_portuguese else pt_tts_model
+
+    message = smart_agent.ask_groq(
+        groq_api_key,
+        system_prompt=(
+            f"Voce e um tradutor. Traduza o texto do usuario para {target_language}, de forma "
+            "natural e fiel ao sentido original. Responda APENAS com a traducao — sem aspas, "
+            "sem comentarios, sem explicar o que fez."
+        ),
+        messages=[{"role": "user", "content": original_text}],
+        max_tokens=300,
+    )
+    translated_text = (message.get("content") or "").strip()
+    if not translated_text:
+        raise RuntimeError("nao consegui traduzir")
+
+    jarvis.speak(translated_text, tts_model)
+    return f"traduzido ({target_language}): \"{original_text}\" -> \"{translated_text}\""
 
 
 def open_dashboard(params: dict):
@@ -117,6 +189,7 @@ ACTIONS = {
     "voice_command": voice_command,
     "jarvis_voice_agent": jarvis_voice_agent,
     "open_jarvis_agent": open_jarvis_agent,
+    "translator_agent": translator_agent,
     "open_dashboard": open_dashboard,
 }
 

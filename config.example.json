@@ -11,7 +11,13 @@
     "google_api_key": "SUA_CHAVE_GEMINI_AQUI"
   },
   "passive_listening": {
-    "enabled": false,
+    "enabled": true,
+    "wake_word": {
+      "enabled": true,
+      "model": "hey_jarvis",
+      "threshold": 0.5,
+      "gesture": "wake_word_command"
+    },
     "clap_detection": {
       "enabled": false,
       "threshold_rms": 4000,
@@ -64,6 +70,34 @@
       "action": "open_dashboard",
       "params": {},
       "reliability": "high"
+    },
+    "button1_triple": {
+      "label": "Botão 1 triplo · Tradutor (PT↔EN, bidirecional)",
+      "action": "translator_agent",
+      "params": {
+        "pt_tts_model": "pt_BR-faber-medium.onnx",
+        "en_tts_model": "en_US-lessac-medium.onnx",
+        "max_duration_seconds": 15,
+        "silence_duration_seconds": 1,
+        "silence_threshold": 400
+      },
+      "reliability": "medium"
+    },
+    "wake_word_command": {
+      "label": "Hey Jarvis (wake word) · Jarvis com verificação de voz",
+      "action": "open_jarvis_agent",
+      "params": {
+        "session_id": "wyglass",
+        "user_name": "SEU_NOME_AQUI",
+        "user_role": "sua atividade/papel",
+        "tts_model": "pt_BR-faber-medium.onnx",
+        "max_duration_seconds": 15,
+        "silence_duration_seconds": 1,
+        "silence_threshold": 400,
+        "require_speaker_match": true,
+        "speaker_match_threshold": 0.75
+      },
+      "reliability": "medium"
     }
   }
 }

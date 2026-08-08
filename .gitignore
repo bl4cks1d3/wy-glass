@@ -4,6 +4,7 @@ config.json
 # Dados pessoais gerados em uso
 recordings/
 screenshots/
+voice_profile.npy
 
 # Python
 __pycache__/

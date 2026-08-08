@@ -5,7 +5,8 @@
 - Windows 10/11 (o projeto usa `pythonw.exe` e um script `.vbs` para rodar oculto — em Linux/macOS o equivalente seria um serviço `systemd`/`launchd`, ver [07-roteiro-futuro.md](07-roteiro-futuro.md))
 - Python 3.10+
 - Óculos já pareados no Windows como dispositivo de áudio Bluetooth clássico (`Configurações > Bluetooth e dispositivos > Adicionar dispositivo`)
-- Uma chave de API do Google Gemini (gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey))
+- **Rádio Bluetooth do PC ligado** — parece óbvio, mas já causou confusão real: com o Bluetooth desligado no Windows (não só o dispositivo desparelhado), o `bleak` falha com `BleakBluetoothNotAvailableError: Bluetooth radio is not powered on`, e nem a wake word nem o reconhecimento de locutor ativam (dependem do microfone dos óculos como dispositivo de áudio, que só existe com a conexão de pé)
+- Uma chave de API da [Groq](https://console.groq.com/keys) (gratuita — cérebro padrão do assistente, `open_jarvis_agent`) e, opcionalmente, do Google Gemini (gratuita em [aistudio.google.com/apikey](https://aistudio.google.com/apikey), só necessária pro pipeline alternativo `jarvis_voice_agent`)
 
 ## 5.2 Dependências Python
 
@@ -17,7 +18,7 @@ python setup_dev.py
 
 Rode `python setup_dev.py --check` a qualquer momento pra só ver o status (sem instalar/baixar nada) — útil pra conferir o que falta sem repetir uma instalação já feita. Ambos os modos são idempotentes: rodar de novo com tudo já instalado não reinstala nada, só confirma.
 
-O que ele cobre, na ordem: versão do Python (mínimo 3.10), os pacotes de `requirements.txt`, o navegador Chromium do Playwright (usado pelo `open_jarvis_agent` — busca/navegador/notícias, ver `11-open-jarvis.md`), o modelo de voz Piper (§5.3) e o `config.json` (§5.5, copiado de `config.example.json` na primeira vez — ainda precisa preencher endereço BLE e chaves de API manualmente depois). Não cobre o lado Android (SDK/Gradle/JDK) — isso é `docs/10-app-android.md` §10.20.
+O que ele cobre, na ordem: versão do Python (mínimo 3.10), os pacotes de `requirements.txt` (inclui `openwakeword`, `librosa`, `noisereduce`, `scikit-learn`), o navegador Chromium do Playwright (usado pelo `open_jarvis_agent` — busca/navegador/notícias, ver `11-open-jarvis.md`), o modelo de voz Piper em português (§5.3), os modelos pré-treinados do openWakeWord (wake word "Hey Jarvis"), o `resemblyzer` (reconhecimento de locutor opcional — instalado à parte com `--no-deps`, ver `06-referencia-acoes.md` §6.4 pro motivo) e o `config.json` (§5.5, copiado de `config.example.json` na primeira vez — ainda precisa preencher endereço BLE e chaves de API manualmente depois). Não cobre o lado Android (SDK/Gradle/JDK) — isso é `docs/10-app-android.md` §10.20.
 
 **Instalação manual** (equivalente ao que o script faz, se preferir rodar passo a passo ou não puder rodar o script):
 
@@ -30,7 +31,9 @@ playwright install chromium
 
 **Se aparecer `ModuleNotFoundError` mesmo depois de instalar**: confirme que está usando o mesmo Python que o `pip install` usou (`python --version` vs o Python apontado por `pip --version`) — numa máquina com mais de uma instalação do Python (ex: uma pelo instalador oficial, outra pela Microsoft Store), é fácil instalar num interpretador e rodar `server.py` com outro. Todo o desenvolvimento deste projeto foi feito com o Python instalado em `%LOCALAPPDATA%\Programs\Python\Python3XX\python.exe` (`py -0p` lista todas as instalações encontradas no sistema) — `setup_dev.py` sempre usa o mesmo interpretador com que foi chamado (`sys.executable`), então rodá-lo já evita essa armadilha.
 
-## 5.3 Baixar um modelo de voz (Piper / Hugging Face)
+## 5.3 Baixar modelos de voz (Piper / Hugging Face)
+
+Voz em português (obrigatória):
 
 ```bash
 mkdir tts_models
@@ -41,7 +44,16 @@ curl -sL -o pt_BR-faber-medium.onnx.json \
   "https://huggingface.co/rhasspy/piper-voices/resolve/main/pt/pt_BR/faber/medium/pt_BR-faber-medium.onnx.json"
 ```
 
-Outras vozes em português (e outros idiomas) disponíveis em [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices).
+Voz em inglês (opcional — só necessária pro `translator_agent` falar a metade PT→EN da tradução; sem ela, a tradução ainda funciona no sentido idioma-estrangeiro→português):
+
+```bash
+curl -sL -o en_US-lessac-medium.onnx \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx"
+curl -sL -o en_US-lessac-medium.onnx.json \
+  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json"
+```
+
+Outras vozes (e outros idiomas) disponíveis em [huggingface.co/rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices).
 
 ## 5.4 Descobrir o endereço BLE do seu dispositivo
 
@@ -65,14 +77,18 @@ Procure pelo nome anunciado pelo dispositivo (ex: `W AI 4`) e copie o endereço 
 
 ## 5.5 Configurar `config.json`
 
-Copie `config.example.json` para `config.json` (este último está no `.gitignore` — nunca é versionado, porque carrega chaves de API em texto puro) e preencha `device_address` e `credentials` (chaves Groq/Tavily/Gemini — ver §5.4 pro endereço BLE). O modelo principal do Wy Glass é o **Groq** (`open_jarvis_agent`, agente unificado com busca/tools — ver `11-open-jarvis.md`); os 4 gestos padrão do `config.example.json` já vêm configurados em cima dele, sem precisar escolher um provedor por gesto:
+Copie `config.example.json` para `config.json` (este último está no `.gitignore` — nunca é versionado, porque carrega chaves de API em texto puro) e preencha `device_address` e `credentials` (chaves Groq/Tavily/Gemini — ver §5.4 pro endereço BLE). O modelo principal do Wy Glass é o **Groq** (`open_jarvis_agent`, agente unificado com busca/tools — ver `11-open-jarvis.md`); os gestos padrão do `config.example.json` já vêm configurados em cima dele, sem precisar escolher um provedor por gesto:
 
 | Gesto | Ação | O que faz |
 |---|---|---|
 | `button1_single` | `open_jarvis_agent` | Um turno: grava, pergunta ao Groq, responde, encerra |
 | `button1_double` | `open_jarvis_agent` + `conversation_mode: true` | Mesma coisa, em loop contínuo (fica ouvindo de novo após cada resposta, até o botão 2 encerrar) |
+| `button1_triple` | `translator_agent` | Tradutor bidirecional (PT↔EN) — grava, traduz, fala a tradução |
 | `button2_single` | `stop_conversation` | Encerra a conversa contínua ativa (relevante pro `button1_double`) |
 | `button2_double` | `open_dashboard` | Abre o painel de controle |
+| `wake_word_command` (via `passive_listening.wake_word.gesture`, não um clique) | `open_jarvis_agent` + `require_speaker_match: true` | Disparado dizendo "Hey Jarvis" — mesmo fluxo do `button1_single`, mas com verificação opcional de locutor (§6.4 de `06-referencia-acoes.md`) |
+
+Uma vez conectado, `python enroll_voice.py` (com o servidor fechado — ver docstring do script) cadastra sua voz localmente, ativando a checagem da wake word na próxima vez que o servidor subir. Sem isso, a wake word responde a qualquer voz normalmente.
 
 `jarvis_voice_agent` (Gemini/OpenRouter/Mistral/Ollama, multi-provedor — ver `06-referencia-acoes.md`) continua existindo como ação alternativa caso um gesto precise de outro provedor especificamente, mas não é mais o padrão de nenhum gesto — evita a situação de um gesto ficar preso num provedor diferente do resto por engano (era o caso do `button1_double` em versões anteriores deste arquivo, fixado no Gemini enquanto o resto já tinha migrado pro Groq).
 

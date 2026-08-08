@@ -1,5 +1,6 @@
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -57,6 +58,61 @@ class ClapDetector:
         return False
 
 
+class WakeWordDetector:
+    """Fala com wakeword_worker.py (subprocesso persistente) em vez de rodar o openWakeWord
+    neste processo — onnxruntime conflita em nivel de PROCESSO (nao de thread) com as DLLs
+    nativas do bleak/WinRT ja carregadas aqui (mesmo problema documentado pro Piper TTS em
+    docs/04-arquitetura.md §4.8; a primeira versao disto tentou so uma thread separada e
+    derrubava a thread inteira do passive_listener na primeira deteccao). `feed()` manda o
+    audio cru pro worker; a deteccao em si chega assincrona via `on_trigger` (chamado de uma
+    thread leitora dedicada, nao da thread que chama feed())."""
+
+    def __init__(self, model_name: str, threshold: float = 0.5, on_trigger=None):
+        import subprocess
+        import sys
+        worker = Path(__file__).parent / "wakeword_worker.py"
+        self.model_name = model_name
+        self.threshold = threshold
+        self._on_trigger = on_trigger
+        self._proc = subprocess.Popen(
+            [sys.executable, str(worker), model_name, str(threshold)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        threading.Thread(target=self._read_triggers, daemon=True).start()
+        threading.Thread(target=self._drain_stderr, daemon=True).start()
+
+    def _read_triggers(self):
+        try:
+            for line in self._proc.stdout:
+                if line.strip() == b"TRIGGER" and self._on_trigger is not None:
+                    self._on_trigger()
+        except Exception:
+            pass
+
+    def _drain_stderr(self):
+        # sem isso o pipe de stderr enche e trava a proxima escrita do worker — so precisa
+        # ser lido, nao ha "erro real" esperado aqui em uso normal.
+        try:
+            for line in self._proc.stderr:
+                if line.strip():
+                    print(f"[wakeword_worker] {line.decode(errors='replace').rstrip()}", flush=True)
+        except Exception:
+            pass
+
+    def feed(self, chunk: np.ndarray):
+        if self._proc.poll() is not None:
+            return  # worker morreu — sem respawn automatico por ora, so nao derruba esta thread
+        try:
+            self._proc.stdin.write(np.asarray(chunk, dtype=np.int16).tobytes())
+            self._proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+
+    def close(self):
+        if self._proc.poll() is None:
+            self._proc.kill()
+
+
 class PassiveListener:
     """Background thread that subscribes to the shared mic (audio_capture) and
     watches for passive triggers (clap, later wake word). Triggers are reported
@@ -72,6 +128,8 @@ class PassiveListener:
         self._on_trigger = None
         self._clap_detector: ClapDetector | None = None
         self._clap_cfg_snapshot = None
+        self._wake_word_detector: WakeWordDetector | None = None
+        self._wake_word_cfg_snapshot = None
         self._debug = False
 
     def start(self, config_provider, on_trigger):
@@ -139,8 +197,12 @@ class PassiveListener:
                         debug_last_print = now
 
                 self._process_clap(pl_cfg.get("clap_detection", {}), rms)
+                self._process_wake_word(pl_cfg.get("wake_word", {}), chunk)
         finally:
             mgr.unsubscribe(q)
+            if self._wake_word_detector is not None:
+                self._wake_word_detector.close()
+                self._wake_word_detector = None
 
     def _process_clap(self, clap_cfg: dict, rms: float):
         if not clap_cfg.get("enabled", False):
@@ -155,6 +217,30 @@ class PassiveListener:
         if self._clap_detector.feed(rms, debug=self._debug):
             gesture = clap_cfg.get("gesture", "button1_single")
             self._fire(gesture, "palma dupla detectada")
+
+    def _process_wake_word(self, wake_cfg: dict, chunk):
+        if not wake_cfg.get("enabled", False):
+            if self._wake_word_detector is not None:
+                self._wake_word_detector.close()
+                self._wake_word_detector = None
+                self._wake_word_cfg_snapshot = None
+            return
+        model_name = wake_cfg.get("model", "hey_jarvis")
+        threshold = float(wake_cfg.get("threshold", 0.5))
+        gesture = wake_cfg.get("gesture", "button1_single")
+        snapshot = (model_name, threshold, gesture)
+        # recria o worker (subprocesso — caro, carrega onnxruntime + pesos) so quando a config
+        # muda de verdade, nao a cada chunk de 30ms.
+        if self._wake_word_detector is None or self._wake_word_cfg_snapshot != snapshot:
+            if self._wake_word_detector is not None:
+                self._wake_word_detector.close()
+            self._wake_word_detector = WakeWordDetector(
+                model_name, threshold,
+                on_trigger=lambda gk=gesture, mn=model_name: self._fire(
+                    gk, f"palavra de ativacao detectada ({mn})"),
+            )
+            self._wake_word_cfg_snapshot = snapshot
+        self._wake_word_detector.feed(chunk)
 
     def _fire(self, gesture_key: str, note: str):
         if self._on_trigger is not None:

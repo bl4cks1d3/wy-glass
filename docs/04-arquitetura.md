@@ -28,7 +28,10 @@
 | `server.py` | Servidor FastAPI: conexão BLE persistente, classificação de eventos, contagem de cliques, WebSocket, rotas HTTP |
 | `actions.py` | Dispatcher de ações — cada tipo de ação (`run_command`, `screenshot`, etc.) é uma função pura |
 | `jarvis.py` | Pipeline de IA: gravação com VAD, chamada ao Gemini, síntese de voz |
-| `tts_worker.py` | Processo isolado que roda a síntese de voz (Piper) — separado para evitar conflito de DLL nativa |
+| `tts_worker.py` | Processo isolado (persistente) que roda a síntese de voz (Piper) — separado para evitar conflito de DLL nativa com bleak/WinRT |
+| `wakeword_worker.py` | Processo isolado (persistente) que roda a detecção de wake word (openWakeWord) — mesmo motivo |
+| `speaker_verify_worker.py` | Processo isolado (persistente) que roda o reconhecimento de locutor (resemblyzer/torch) — mesmo motivo |
+| `enroll_voice.py` | Script standalone (rodado manualmente) que cadastra a voz do usuário — grava algumas frases e salva `voice_profile.npy` |
 | `config.json` | Configuração persistente: endereço do dispositivo, mapeamento de gestos, chaves de API |
 | `static/index.html` | Painel de controle (`/deck`) |
 | `static/test.html` | Painel de diagnóstico (`/test`) |
@@ -79,11 +82,13 @@ record_audio_vad()  →  pcm_to_wav_bytes()  →  ask_gemini()  →  speak() [su
 
 - **`record_audio_vad`**: grava em blocos pequenos (~30ms), calcula RMS de cada bloco, e para automaticamente após um período configurável de silêncio contínuo seguindo fala detectada. Teto de segurança (`max_duration_seconds`) evita gravação infinita.
 - **`ask_gemini`**: manda o áudio (WAV, base64) direto para a API REST do Gemini (`generateContent`), sem necessidade de transcrição separada — o modelo entende áudio nativamente. Tem retry com backoff exponencial para erros 429 (limite de requisições).
-- **`speak`**: delega a síntese de voz para `tts_worker.py`, rodado como **subprocesso** — necessário porque o `onnxruntime` (usado pelo Piper) conflita com outras bibliotecas nativas já carregadas no processo principal (bleak/WinRT), causando falha de carregamento de DLL se rodado no mesmo processo.
+- **`speak`**: delega a síntese de voz para `tts_worker.py`, rodado em **subprocesso persistente** — necessário porque o `onnxruntime` (usado pelo Piper) conflita com outras bibliotecas nativas já carregadas no processo principal (bleak/WinRT), causando falha de carregamento de DLL se rodado no mesmo processo.
 
-## 4.8 Por que subprocesso para o TTS?
+## 4.8 Por que subprocesso para o TTS? (e por que ele agora fica vivo)
 
-Durante o desenvolvimento, descobrimos que rodar o Piper TTS (via `onnxruntime`) no mesmo processo Python que já tinha carregado `bleak` (WinRT/COM) e outras bibliotecas nativas causava uma falha de inicialização de DLL — mas funcionava perfeitamente quando testado isoladamente. A causa raiz é um conflito de DLL entre bibliotecas nativas diferentes carregadas no mesmo processo ("DLL hell" clássico do Windows). A solução mais simples e robusta foi isolar a síntese de voz em um processo Python novo a cada chamada, evitando o conflito por completo, ao custo de ~1-2s de overhead de inicialização do interpretador.
+Durante o desenvolvimento, descobrimos que rodar o Piper TTS (via `onnxruntime`) no mesmo processo Python que já tinha carregado `bleak` (WinRT/COM) e outras bibliotecas nativas causava uma falha de inicialização de DLL — mas funcionava perfeitamente quando testado isoladamente. A causa raiz é um conflito de DLL entre bibliotecas nativas diferentes carregadas no mesmo processo ("DLL hell" clássico do Windows). A solução foi isolar a síntese de voz num processo Python separado — mas até 2026-08-08 esse processo nascia e morria a cada fala (um `Popen` novo por chamada de `speak()`), pagando o custo de importar `piper`/`onnxruntime` e carregar o modelo `.onnx` do disco em **toda resposta falada** (medido: ~12s a mais na primeira fala do processo vs. as seguintes, com o modelo já em cache).
+
+**Correção de latência (2026-08-08)**: `tts_worker.py` virou um processo de vida longa, iniciado sob demanda na primeira fala e reaproveitado pelo resto da execução do `server.py`. `jarvis.py` fala com ele por um protocolo simples de uma linha JSON por comando via stdin/stdout (`{"cmd": "speak", "text": ..., "model": ...}` → `"DONE"`/`"STOPPED"`/`"ERROR ..."`; `{"cmd": "stop"}` interrompe a fala em andamento via `sd.stop()`, mesmo comportamento de antes). O modelo de voz (`PiperVoice`) fica em cache em memória por nome de arquivo, carregado uma única vez. Resultado: só a primeira fala de cada sessão do servidor paga o custo de importar/carregar; todas as seguintes ficam bem mais rápidas.
 
 ## 4.9 Áudio de saída via Bluetooth clássico
 

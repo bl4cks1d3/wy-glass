@@ -46,7 +46,19 @@ PACKAGE_IMPORT_NAMES = {
     "playwright": "playwright",
     "pyinstaller": "PyInstaller",
     "pystray": "pystray",
+    "openwakeword": "openwakeword",
+    "librosa": "librosa",
+    "noisereduce": "noisereduce",
+    "scikit-learn": "sklearn",
 }
+
+# resemblyzer fica FORA de requirements.txt/PACKAGE_IMPORT_NAMES de proposito: ele declara
+# webrtcvad>=2.0.10 como dependencia, e webrtcvad tem extensao C que nao compila neste tipo de
+# ambiente (Windows sem Visual Studio instalado) — e nem existe wheel pre-compilada pra Python
+# 3.14 ainda (versao recente demais). Instalamos com --no-deps (ensure_speaker_recognition
+# abaixo) porque so usamos VoiceEncoder.embed_utterance()/wav_to_mel_spectrogram(), que nao
+# precisam de webrtcvad de verdade — so a funcao trim_long_silences() usa, e essa nunca e
+# chamada (ver speaker_verify_worker.py, que injeta um modulo stub pra satisfazer o import).
 
 
 def _header(text: str):
@@ -106,6 +118,47 @@ def ensure_tts_model():
     print(f"[OK]    modelo de voz Piper em {TTS_DIR}")
 
 
+def check_speaker_recognition() -> bool:
+    try:
+        import importlib
+        importlib.import_module("resemblyzer")
+        ok = True
+    except ImportError:
+        ok = False
+    print(f"[{'OK' if ok else 'FALTA'}] resemblyzer (reconhecimento de locutor)")
+    return ok
+
+
+def ensure_speaker_recognition():
+    # --no-deps: ver comentario grande junto de PACKAGE_IMPORT_NAMES sobre por que webrtcvad
+    # (dependencia declarada do resemblyzer) fica de fora.
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps", "resemblyzer"], check=True)
+        print("[OK]    resemblyzer (--no-deps, sem webrtcvad — ver comentario no topo do arquivo)")
+    except subprocess.CalledProcessError as e:
+        print(f"[FALTA] nao consegui instalar resemblyzer: {e}")
+
+
+def check_wakeword_models() -> bool:
+    try:
+        import openwakeword
+        models_dir = Path(openwakeword.__file__).parent / "resources" / "models"
+        ok = (models_dir / "hey_jarvis_v0.1.onnx").exists()
+    except ImportError:
+        ok = False
+    print(f"[{'OK' if ok else 'FALTA'}] modelo de wake word 'hey_jarvis' (openWakeWord)")
+    return ok
+
+
+def ensure_wakeword_models():
+    try:
+        from openwakeword.utils import download_models
+        download_models()  # idempotente — pula o que ja foi baixado
+        print("[OK]    modelos de wake word (openWakeWord)")
+    except Exception as e:
+        print(f"[FALTA] nao consegui baixar os modelos de wake word: {e}")
+
+
 def check_config() -> bool:
     ok = (BASE_DIR / "config.json").exists()
     print(f"[{'OK' if ok else 'FALTA'}] config.json")
@@ -148,11 +201,21 @@ def main():
         _header("MODELO DE VOZ (PIPER)")
         ensure_tts_model()
 
+        _header("WAKE WORD (openWakeWord)")
+        ensure_wakeword_models()
+
+        _header("RECONHECIMENTO DE LOCUTOR (resemblyzer)")
+        ensure_speaker_recognition()
+
         _header("CONFIG.JSON")
         ensure_config()
     else:
         _header("MODELO DE VOZ (PIPER)")
         check_tts_model()
+        _header("WAKE WORD (openWakeWord)")
+        check_wakeword_models()
+        _header("RECONHECIMENTO DE LOCUTOR (resemblyzer)")
+        check_speaker_recognition()
         _header("CONFIG.JSON")
         check_config()
 
@@ -169,6 +232,8 @@ def main():
           "Bluetooth e dispositivos)")
     print("- Pra rodar: python server.py  (ou dashboard.py, que sobe o servidor sozinho se "
           "precisar — ver docs/12-guia-de-uso.md)")
+    print("- Opcional: python enroll_voice.py cadastra sua voz pra wake word so responder a "
+          "voce (ver §6.5 de docs/06-referencia-acoes.md)")
 
 
 if __name__ == "__main__":

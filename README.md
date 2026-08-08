@@ -74,18 +74,23 @@ Todo pacote começa com o byte mágico `0xBC`.
 ## 3. Arquitetura do Wy Glass
 
 ```
-Botão físico (BLE notify) ──► server.py (FastAPI + Bleak)
-                                    │
-                      classifica: heartbeat? telemetria? clique real?
-                                    │
-                     conta cliques (simples/duplo/triplo) por botão
-                                    │
-                          dispara a ação configurada
-                                    │
-                    ┌───────────────┴────────────────┐
-              ação simples                    modo conversacional
-           (roda 1x em thread)          (loop: grava→pergunta→fala→repete
-                                          até o botão de parar ser clicado)
+Botão físico (BLE notify)  ──┐
+Wake word "Hey Jarvis"       ├──► server.py (FastAPI + Bleak)
+(mic compartilhado)        ──┘         │
+                          classifica: heartbeat? telemetria? clique real? wake word?
+                                        │
+                       conta cliques (simples/duplo/triplo) por botão
+                                        │
+                              dispara a ação configurada
+                                        │
+                      ┌─────────────────┴──────────────────┐
+                ação simples                        modo conversacional
+             (roda 1x em thread)              (loop: grava→pergunta→fala→repete
+                                                até o botão de parar ser clicado)
+                                        │
+                          tool-calling decide o que fazer:
+              search · open_url · see_screen · take_screenshot · get_news ·
+              open_dashboard · set_persona · start_translator · end_conversation
 ```
 
 ### 3.1 Stack técnica
@@ -93,8 +98,11 @@ Botão físico (BLE notify) ──► server.py (FastAPI + Bleak)
 - **Python 3.14** + [`bleak`](https://github.com/hbldh/bleak) (BLE, multiplataforma — Windows/Linux/macOS)
 - **FastAPI** + `uvicorn` + WebSocket (painel web + eventos ao vivo)
 - **`sounddevice`** (gravação/reprodução via PortAudio — usa o áudio Bluetooth clássico já pareado como dispositivo padrão do Windows)
-- **Google Gemini** (`generativelanguage.googleapis.com`, REST direto) — entende áudio nativamente, sem STT separado
-- **Piper TTS** (offline, local, modelo neural `pt_BR-faber-medium` baixado do Hugging Face) — roda em subprocesso isolado para evitar conflito de DLL nativa com o resto do processo
+- **Groq** (`openai/gpt-oss-20b`, function calling nativo) — cérebro padrão do assistente unificado, com Whisper da Groq pra transcrição; **Google Gemini** continua disponível como pipeline alternativo multi-provedor (`jarvis_voice_agent`)
+- **Piper TTS** (offline, local, modelos neurais `pt_BR-faber-medium` e `en_US-lessac-medium`, baixados do Hugging Face) — roda em **processo persistente** (`tts_worker.py`), isolado do processo principal por conflito de DLL com `bleak`/WinRT (ver `docs/04-arquitetura.md` §4.8)
+- **openWakeWord** (100% local/offline) — detecção da palavra de ativação "Hey Jarvis", também em processo persistente (`wakeword_worker.py`), mesmo motivo de isolamento
+- **resemblyzer** — reconhecimento de locutor opcional (só responde à sua voz), processo persistente (`speaker_verify_worker.py`)
+- **noisereduce** — supressão de ruído (spectral gating) na gravação, antes da transcrição
 
 ### 3.2 Páginas do painel
 
@@ -113,27 +121,46 @@ Botão físico (BLE notify) ──► server.py (FastAPI + Bleak)
 | `key_shortcut` | Simula um atalho de teclado |
 | `screenshot` | Tira print da tela e salva em arquivo |
 | `voice_command` | Grava áudio e salva em `.wav` (sem IA) |
-| `jarvis_voice_agent` | **Pipeline completo**: grava (com VAD) → Gemini → Piper TTS → toca resposta |
+| `jarvis_voice_agent` | Pipeline multi-provedor (Gemini/Groq/OpenRouter/Mistral/Ollama) — alternativa ao agente unificado, um turno sem tools |
+| `open_jarvis_agent` | **Agente unificado (padrão)**: grava → Groq Whisper → Groq com tool-calling (busca, abrir URL, ver/tirar print de tela, notícias, abrir dashboard, trocar personalidade, iniciar tradutor, encerrar conversa) → fala a resposta com Piper. Memória de conversa entre turnos. |
+| `translator_agent` | Grava fala em qualquer idioma, traduz e fala em voz alta — bidirecional (PT↔EN), direção decidida automaticamente pelo idioma detectado |
 | `stop_conversation` | Encerra o modo conversacional (com frase de despedida opcional) |
+| `open_dashboard` | Abre o painel de controle |
 
-### 3.4 Mapeamento atual (v1)
+Detalhes de parâmetros de cada ação: [`docs/06-referencia-acoes.md`](docs/06-referencia-acoes.md).
 
-- **Botão 1 · clique simples** → inicia o **Wy Glass** em modo conversacional (grava, pergunta ao Gemini, responde por voz, e volta a escutar automaticamente)
+### 3.4 Mapeamento atual
+
+- **Botão 1 · clique simples** → `open_jarvis_agent` (um turno)
+- **Botão 1 · clique duplo** → `open_jarvis_agent` em modo conversacional contínuo
+- **Botão 1 · clique triplo** → `translator_agent`
 - **Botão 2 · clique simples** → encerra a conversa
+- **Botão 2 · clique duplo** → abre o dashboard
+- **Wake word "Hey Jarvis"** → mesmo fluxo do botão 1 clique simples, com verificação opcional de locutor (ver §3.7)
 
-### 3.5 Gravação inteligente (VAD)
+### 3.5 Gravação inteligente (VAD) e supressão de ruído
 
-Em vez de gravar por um tempo fixo, o Wy Glass grava por energia (RMS) do áudio: começa a contar silêncio só depois de detectar fala, e para automaticamente após ~1s de silêncio contínuo (configurável), com um teto de segurança de 15s.
+Em vez de gravar por um tempo fixo, o Wy Glass grava por energia (RMS) do áudio: começa a contar silêncio só depois de detectar fala, e para automaticamente após ~1s de silêncio contínuo (configurável), com um teto de segurança de 15s. Depois de gravado, o clipe passa por supressão de ruído (`noisereduce`, spectral gating) antes de ir pro Whisper — melhora a transcrição em ambiente com ruído de fundo.
 
 ### 3.6 Modo de execução
 
 O servidor roda como processo oculto (`pythonw.exe`, sem janela de console), independente de qualquer aba de navegador aberta. Reinício manual via `start_hidden.vbs`.
 
+### 3.7 Ativação por voz e reconhecimento de locutor
+
+Além do botão físico, é possível ativar o assistente dizendo **"Hey Jarvis"** — detecção 100% local via `openWakeWord`, sem custo de API enquanto a palavra não é dita. Opcionalmente, dá pra restringir isso à sua voz especificamente (`python enroll_voice.py` cadastra um perfil local, `voice_profile.npy`, nunca enviado a lugar nenhum) — sem cadastro, qualquer voz aciona a wake word normalmente. O botão físico nunca passa por essa checagem (pressionar o botão já é, por si só, intencional). Detalhes: `docs/06-referencia-acoes.md` §6.3-6.4.
+
 ---
 
 ## 4. O que já é possível fazer com os óculos hoje
 
-- Conversar com uma IA (Gemini) por voz, sem tocar no celular, usando só o botão físico
+- Conversar com uma IA (Groq, com fallback multi-provedor) por voz, sem tocar no celular — usando o botão físico **ou** a palavra de ativação "Hey Jarvis"
+- Tool-calling de verdade: pesquisar, abrir sites, ver/tirar print da tela, notícias, abrir o dashboard, trocar a personalidade do assistente e iniciar o tradutor — tudo por linguagem natural, sem tags de ação
+- Memória de conversa entre turnos (dentro da mesma sessão)
+- Personas trocáveis por voz (`padrao`, `serio`, `brincalhao`, `professor`)
+- Tradução em tempo real, bidirecional (PT↔EN), por botão ou por voz ("Hey Jarvis, inicia tradução")
+- Reconhecimento de locutor opcional — a wake word pode responder só à sua voz
+- Supressão de ruído automática na gravação, antes da transcrição
 - Qualquer clique do botão pode disparar **qualquer ação de PC**: abrir programas, tirar screenshot, simular atalhos, abrir sites
 - Clique simples/duplo/triplo em cada um dos 2 botões = até **6 gestos independentes** configuráveis
 - Modo conversacional contínuo (liga com um botão, desliga com o outro)
@@ -142,17 +169,20 @@ O servidor roda como processo oculto (`pythonw.exe`, sem janela de console), ind
 
 ## 5. Possibilidades futuras (ainda não implementadas)
 
-- **Palavra de ativação (wake word)**: hoje o gatilho é sempre o botão físico. Daria para adicionar detecção de palavra de ativação (ex: bibliotecas como `openWakeWord` ou `Porcupine`) escutando continuamente o microfone Bluetooth, eliminando a necessidade do clique.
-- **Múltiplos agentes/modelos**: a arquitetura de `actions.py` já é plugável — dá para adicionar outros backends de IA (OpenAI, Claude, modelos locais via Ollama) como novos tipos de ação, ou até deixar configurável qual "agente" cada botão chama.
-- **Versão Linux**: toda a stack (Bleak, sounddevice, Piper, FastAPI) já é multiplataforma — a base do trabalho é testar/empacotar no Linux (BlueZ), não reescrever.
+- **Wake words customizadas por frase/idioma**: hoje só existe uma wake word ("Hey Jarvis", modelo pré-treinado do openWakeWord) — treinar frases próprias em português exigiria gerar dataset sintético e treinar modelo próprio.
+- **Tradução PT→outro idioma além de inglês**: bidirecional hoje é só PT↔EN (única voz Piper adicional instalada) — outros idiomas exigiriam baixar mais vozes.
+- **Supressão de ruído em tempo real no stream da wake word**: hoje a supressão só roda no clipe já gravado (depois do VAD), não no áudio contínuo escutado pela wake word — exigiria um denoiser desenhado pra streaming (RNNoise, DeepFilterNet).
+- **Versão Linux**: toda a stack (Bleak, sounddevice, Piper, FastAPI, openWakeWord, resemblyzer) já é multiplataforma — a base do trabalho é testar/empacotar no Linux (BlueZ), não reescrever.
 - **Open source**: o projeto é 100% código nosso (nenhuma dependência do APK/firmware do fabricante além do protocolo BLE documentado aqui) — pronto para publicar.
 
 ## 6. Limitações conhecidas
 
 - O chip BLE aceita **apenas uma conexão de controle por vez** — o app oficial do celular e o Wy Glass não podem controlar os óculos ao mesmo tempo.
-- A chave gratuita do Gemini (AI Studio) tem limite de requisições por minuto; o Wy Glass já trata isso com retry automático, mas uso muito intenso pode esbarrar no limite.
+- As chaves gratuitas (Groq, Gemini) têm limite de requisições por minuto; o Wy Glass já trata isso com retry automático, mas uso muito intenso pode esbarrar no limite.
 - O clique do botão também aciona AVRCP nativo do Windows (play/pause de mídia) — efeito colateral do próprio hardware, não é algo que controlamos por software.
+- A wake word e o reconhecimento de locutor só ficam ativos depois que o Bluetooth conecta de verdade (dependem do microfone dos óculos como dispositivo de áudio) — se o rádio Bluetooth do PC estiver desligado, nada disso funciona até reconectar.
+- Ambiente de desenvolvimento roda em Python 3.14 (recente) — algumas dependências de reconhecimento de locutor (`webrtcvad`, transitiva do `resemblyzer`) não têm wheel pré-compilada ainda nessa versão; contornado com instalação `--no-deps` + stub (ver `docs/06-referencia-acoes.md` §6.4).
 
 ---
 
-*Wy Glass v1 — projeto pessoal de hardware hacking.*
+*Wy Glass — projeto pessoal de hardware hacking.*

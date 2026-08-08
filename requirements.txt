@@ -13,3 +13,7 @@ piper-tts
 playwright
 pyinstaller
 pystray
+openwakeword
+librosa
+noisereduce
+scikit-learn

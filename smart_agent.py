@@ -21,9 +21,13 @@ import re
 from datetime import datetime
 
 import requests
-from PIL import ImageGrab
 
-import browser_tools
+# browser_tools (playwright) e PIL sao importados so dentro das funcoes que realmente os usam
+# (describe_screen, execute_tool) -- sao ferramentas que o modelo pode ou nao escolher chamar
+# num turno qualquer, entao nao faz sentido exigir playwright/Pillow instalados so pra ter uma
+# conversa basica. intent_classifier (scikit-learn) fica de fora dessa lista de proposito: e
+# chamado incondicionalmente em todo turno por process_turn(), entao e uma dependencia de
+# verdade do agente, nao vale a pena tornar preguicoso.
 import intent_classifier
 import jarvis
 
@@ -277,7 +281,10 @@ def ask_groq(api_key: str, system_prompt: str, messages: list, tools: list | Non
 def describe_screen(groq_api_key: str) -> str:
     """Screenshot + Groq vision (Qwen3.6-27B, o vision model atual do free tier da Groq — o
     antigo Llama 4 Scout foi aposentado) — cloud, rapido (evita rodar um modelo de visao na GPU
-    integrada desta maquina)."""
+    integrada desta maquina). So funciona com um display de verdade (Windows/macOS, ou Linux
+    com X11) — ImageGrab.grab() nao tem como capturar tela numa maquina headless como um Pi
+    sem monitor."""
+    from PIL import ImageGrab
     img = ImageGrab.grab()
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -337,6 +344,7 @@ def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str =
     plus screen descriptions, which Groq vision already returns in natural
     language)."""
     if name == "search":
+        import browser_tools
         result = browser_tools.search_and_read(args.get("query", ""), tavily_api_key=tavily_api_key)
         if "error" not in result:
             if result.get("live_data"):
@@ -344,6 +352,7 @@ def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str =
             return f"Pagina: {result.get('title', '')}\nURL: {result.get('url', '')}\n\n{result.get('content', '')[:2000]}", False
         return f"Busca falhou: {result.get('error', '')}", False
     elif name == "open_url":
+        import browser_tools
         url = args.get("url", "")
         browser_tools.open_url(url)
         return f"Aberto: {url}", True
@@ -354,6 +363,7 @@ def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str =
         actions.screenshot({})
         return "Print salvo.", True
     elif name == "get_news":
+        import browser_tools
         return browser_tools.fetch_news(), False
     elif name == "open_dashboard":
         import dashboard_launcher

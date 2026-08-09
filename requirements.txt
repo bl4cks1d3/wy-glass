@@ -1,3 +1,4 @@
+# --- Essencial (servidor headless: BLE + gestos + fluxo de voz padrao, ex: Raspberry Pi) ---
 bleak
 fastapi
 uvicorn
@@ -5,15 +6,28 @@ websockets
 python-multipart
 sounddevice
 numpy
-pillow
-keyboard
 requests
-beautifulsoup4
 piper-tts
-playwright
-pyinstaller
-pystray
+scikit-learn      # intent_classifier.classify() roda em TODO turno de smart_agent.process_turn()
+                   # (nao e opcional apesar do nome do arquivo/tema soar como feature extra)
+noisereduce        # jarvis.reduce_noise_pcm(), chamado por padrao (denoise=True) em
+                    # open_jarvis_agent/translator_agent -- so evitavel setando "denoise": false
+                    # nos params dos gestos em config.json
+
+# --- Opcional: escuta passiva (wake word "hey jarvis" + deteccao de palma sem apertar botao) ---
+# Exige um dispositivo de audio de ENTRADA disponivel o tempo todo (mic USB num Pi headless,
+# por exemplo -- os oculos nao tem microfone Bluetooth utilizavel, so A2DP de saida). Sem isso
+# fica so o gatilho por botao fisico, que continua funcionando normalmente.
 openwakeword
 librosa
-noisereduce
-scikit-learn
+
+# --- Opcional: ferramentas especificas que o agente pode chamar (import preguicoso, so falha
+# a ferramenta em si se faltar, nao quebra o resto da conversa) ---
+pillow             # see_screen/take_screenshot -- so funciona com display de verdade (nao Pi headless)
+beautifulsoup4     # usado por browser_tools
+playwright         # idem -- busca/navegacao web (ferramenta "search"/"open_url"/"get_news")
+
+# --- Opcional: so fazem sentido com desktop/GUI no Windows, inuteis num servidor headless ---
+keyboard           # acao key_shortcut
+pyinstaller        # empacotar .exe (build, nao runtime)
+pystray            # icone na bandeja do sistema

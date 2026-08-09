@@ -170,7 +170,16 @@ class PassiveListener:
         # contaminacao STA isolada nessa thread de audio, longe da thread do bleak.
         import audio_capture
         mgr = audio_capture.get_capture_manager()
-        q = mgr.subscribe()
+        try:
+            q = mgr.subscribe()
+        except Exception as e:
+            # sem nenhum dispositivo de entrada de audio disponivel (ex: Pi headless sem
+            # microfone, e os oculos nao tem microfone Bluetooth utilizavel — ver achado da
+            # depuracao do app Android) -- escuta passiva fica indisponivel, mas isso nao pode
+            # derrubar o resto do servidor (BLE/gestos por botao continuam funcionando normal).
+            print(f"[passive_listener] sem dispositivo de audio de entrada — escuta passiva "
+                  f"desativada ({e})", flush=True)
+            return
         debug_max_rms = 0.0
         debug_last_print = time.monotonic()
         try:

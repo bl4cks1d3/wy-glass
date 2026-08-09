@@ -11,13 +11,22 @@ transporte Hands-Free AG (nao no no principal do dispositivo nem no transporte A
 foram testados e voltam vazios).
 """
 import subprocess
+import sys
 
 DEVPKEY_BATTERY = "{104EA319-6EE2-4701-BD47-8DDBF425BBE5} 2"
 
 
 def read_battery_percent(device_address: str, timeout: float = 10.0) -> int | None:
     """Le a porcentagem de bateria (0-100) cacheada pelo Windows para device_address, ou None
-    se o Windows ainda nao tem esse dado (ex: nunca conectou via HFP) ou a chamada falhar."""
+    se o Windows ainda nao tem esse dado (ex: nunca conectou via HFP) ou a chamada falhar.
+
+    So funciona no Windows (DEVPKEY via PowerShell/PnP) — noutras plataformas (Linux/Pi, etc)
+    retorna None de cara, sem tentar chamar 'powershell' (que nao existe la e so acrescentaria
+    um FileNotFoundError inutil e reincidente ao log a cada BATTERY_POLL_INTERVAL). Nenhum
+    equivalente Linux foi implementado ainda (precisaria investigar se o BlueZ expoe bateria
+    via org.bluez.Battery1 pra esses oculos, e isso so seria testavel com hardware real na mao)."""
+    if sys.platform != "win32":
+        return None
     mac = device_address.replace(":", "").replace("-", "").upper()
     ps_cmd = (
         "Get-PnpDevice | Where-Object { $_.InstanceId -match "

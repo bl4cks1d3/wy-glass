@@ -3,25 +3,39 @@
 O clique fisico do botao continua funcionando pra qualquer um, sem essa checagem (pressionar o
 botao ja e, por si so, uma acao intencional).
 
-O que isso faz: grava algumas frases suas, calcula um "embedding" de voz (resemblyzer) e salva
-em voice_profile.npy, 100% local — nada sai da sua maquina. Rode isso com o server.py FECHADO
-(ele tambem usa o microfone Bluetooth; os dois disputando o mesmo device da problema) ou pelo
-menos com certeza de que voce e a unica pessoa falando durante o cadastro.
+O que isso faz: grava algumas frases suas e manda pro speaker_verify_worker.py (subprocesso
+separado) calcular o embedding de voz (resemblyzer) e salvar em voice_profile.npy, 100% local —
+nada sai da sua maquina. Rode isso com o server.py FECHADO (ele tambem usa o microfone
+Bluetooth; os dois disputando o mesmo device da problema) ou pelo menos com certeza de que voce
+e a unica pessoa falando durante o cadastro.
+
+Por que nao calcular o embedding aqui mesmo, no processo principal (como a primeira versao
+deste script fazia)? Erro real encontrado em uso: gravar com `sounddevice` E carregar
+`resemblyzer`/`torch` no MESMO processo derruba com "[WinError 1114] ... Error loading
+c10.dll" — mesma classe de conflito de DLL nativa ja documentada pro Piper/onnxruntime (ver
+docs/04-arquitetura.md §4.8) e pro openWakeWord/onnxruntime (ver docs/07-roteiro-futuro.md
+§7.1), so que dessa vez entre sounddevice/PortAudio e torch. A correcao segue o mesmo padrao
+do resto do projeto: isolar a lib nativa pesada (aqui, torch via resemblyzer) num subprocesso
+separado — a gravacao continua aqui (sounddevice de verdade so precisa rodar uma vez, nao
+justifica seu proprio subprocesso), so o calculo do embedding e delegado.
 
 Uso:
     python enroll_voice.py
 """
+import base64
+import io
+import json
+import subprocess
 import sys
-import types
+import wave
 from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
 
 SAMPLE_RATE = 16000
-PROFILE_PATH = Path(__file__).parent / "voice_profile.npy"
-TARGET_DBFS = -30
 RECORD_SECONDS = 3.0
+WORKER_PATH = Path(__file__).parent / "speaker_verify_worker.py"
 
 PHRASES = [
     "Hey Jarvis, que horas sao agora",
@@ -32,51 +46,53 @@ PHRASES = [
 ]
 
 
-def _stub_webrtcvad():
-    # mesmo motivo documentado em speaker_verify_worker.py: webrtcvad tem extensao C que nao
-    # compila neste ambiente (Python 3.14, sem Visual Studio) — nao precisamos dele de verdade,
-    # so da funcao de embedding do resemblyzer, que nao depende de VAD nenhum.
-    if "webrtcvad" in sys.modules:
-        return
-    stub = types.ModuleType("webrtcvad")
-
-    class _UnusedVad:
-        def __init__(self, *a, **kw):
-            raise RuntimeError("webrtcvad e um stub aqui — nao deveria ser chamado")
-    stub.Vad = _UnusedVad
-    sys.modules["webrtcvad"] = stub
-
-
-def record(seconds: float = RECORD_SECONDS) -> np.ndarray:
-    audio = sd.rec(int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32")
+def record_wav_b64(seconds: float = RECORD_SECONDS) -> str:
+    audio = sd.rec(int(seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16")
     sd.wait()
-    return audio.flatten()
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(audio.tobytes())
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def main():
-    _stub_webrtcvad()
-    from resemblyzer import VoiceEncoder
-    from resemblyzer.audio import normalize_volume
-
     print("=== Cadastro de voz — Wy Glass ===\n")
     print(f"Vou pedir pra voce falar {len(PHRASES)} frases curtas, ~{RECORD_SECONDS:.0f}s cada.")
     print("Fale num tom normal, como voce falaria de verdade com os oculos no dia a dia.\n")
 
-    encoder = VoiceEncoder()
-    embeddings = []
+    wavs_b64 = []
     for i, phrase in enumerate(PHRASES, 1):
         input(f"[{i}/{len(PHRASES)}] Pressione ENTER e fale: \"{phrase}\"")
         print("gravando...")
-        wav = record()
-        wav = normalize_volume(wav, TARGET_DBFS, increase_only=True)
-        embeddings.append(encoder.embed_utterance(wav))
+        wavs_b64.append(record_wav_b64())
         print("[OK] capturado\n")
 
-    profile = np.mean(embeddings, axis=0)
-    profile = profile / np.linalg.norm(profile)
-    np.save(PROFILE_PATH, profile)
+    print("Calculando o perfil de voz (subprocesso separado, primeira vez demora ~10-15s)...")
+    proc = subprocess.Popen(
+        [sys.executable, str(WORKER_PATH)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    proc.stdin.write(json.dumps({"cmd": "enroll", "wavs_b64": wavs_b64}) + "\n")
+    proc.stdin.flush()
+    line = proc.stdout.readline().strip()
+    proc.kill()
 
-    print(f"Perfil de voz salvo em {PROFILE_PATH}")
+    if not line:
+        stderr = proc.stderr.read()
+        print("Deu erro no worker de reconhecimento de voz, sem resposta.")
+        if stderr.strip():
+            print(f"Detalhe: {stderr.strip()[-800:]}")
+        sys.exit(1)
+
+    result = json.loads(line)
+    if result.get("status") != "ok":
+        print(f"Deu erro: {result.get('message', line)}")
+        sys.exit(1)
+
+    print(f"\nPerfil de voz salvo em {result['profile_path']} ({result['samples']} amostras)")
     print("Reinicie o servidor (python start_all.py) pra ativar a verificacao na wake word.")
     print("Pra recadastrar do zero, so rode este script de novo — ele sobrescreve o perfil antigo.")
 

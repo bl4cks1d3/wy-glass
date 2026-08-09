@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 import time
 import traceback
 from datetime import datetime
@@ -317,7 +318,25 @@ async def ble_manager():
                 # so this is a no-op on reconnects.
                 _passive_listener().start(lambda: state.config, lambda gk, note: _on_passive_trigger(loop, gk, note))
 
-                await client.start_notify(state.config["notify_char_uuid"], notification_handler(loop))
+                # Forca (re)descoberta de servicos antes de start_notify. No Windows (WinRT) o
+                # client.services ja costuma vir populado nesse ponto, mas no Linux (BlueZ) foi
+                # observado retornar incompleto/vazio logo apos conectar pela primeira vez a um
+                # dispositivo novo -- get_services() forca uma consulta ativa em vez de confiar
+                # no cache, e o log abaixo, se ainda assim faltar, mostra exatamente o que foi
+                # encontrado (em vez do BleakCharacteristicNotFoundError generico), o que ajuda a
+                # diferenciar "ainda nao pareado" de "UUID errado".
+                notify_uuid = state.config["notify_char_uuid"]
+                services = await client.get_services()
+                if services.get_characteristic(notify_uuid) is None:
+                    found = [c.uuid for s in services for c in s.characteristics]
+                    raise RuntimeError(
+                        f"characteristic {notify_uuid} nao encontrada apos descoberta de "
+                        f"servicos (encontradas: {found or 'nenhuma'}) -- no Linux, tente parear "
+                        f"manualmente primeiro: 'bluetoothctl' -> pair/trust/connect no endereco "
+                        f"{address}, depois rode o servidor de novo"
+                    )
+
+                await client.start_notify(notify_uuid, notification_handler(loop))
                 await disconnected.wait()
 
                 state.connected = False
@@ -379,7 +398,10 @@ async def battery_monitor():
         try:
             address = state.config["device_address"]
             percent = await loop.run_in_executor(None, battery.read_battery_percent, address)
-            if percent is None:
+            if percent is None and sys.platform == "win32":
+                # noutras plataformas isso e permanente (sem equivalente Linux implementado,
+                # ver battery.py) — repetir esse aviso a cada BATTERY_POLL_INTERVAL pra sempre
+                # so faria log noise; no Windows ainda vale avisar (pode ser so cache vazio)
                 print("[battery] leitura falhou (Windows sem esse dado ainda?)", flush=True)
             if percent is not None and percent != state.battery_percent:
                 state.battery_percent = percent

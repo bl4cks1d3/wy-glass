@@ -318,17 +318,15 @@ async def ble_manager():
                 # so this is a no-op on reconnects.
                 _passive_listener().start(lambda: state.config, lambda gk, note: _on_passive_trigger(loop, gk, note))
 
-                # Forca (re)descoberta de servicos antes de start_notify. No Windows (WinRT) o
-                # client.services ja costuma vir populado nesse ponto, mas no Linux (BlueZ) foi
-                # observado retornar incompleto/vazio logo apos conectar pela primeira vez a um
-                # dispositivo novo -- get_services() forca uma consulta ativa em vez de confiar
-                # no cache, e o log abaixo, se ainda assim faltar, mostra exatamente o que foi
-                # encontrado (em vez do BleakCharacteristicNotFoundError generico), o que ajuda a
-                # diferenciar "ainda nao pareado" de "UUID errado".
+                # client.services e uma propriedade (nao metodo/coroutine) nas versoes atuais do
+                # bleak -- ja populada automaticamente por connect(), sem chamada explicita. Se a
+                # characteristic nao aparecer, o log abaixo mostra o que FOI encontrado (em vez
+                # do BleakCharacteristicNotFoundError generico), o que ajuda a diferenciar "ainda
+                # nao pareado" de "UUID errado".
                 notify_uuid = state.config["notify_char_uuid"]
-                services = await client.get_services()
-                if services.get_characteristic(notify_uuid) is None:
-                    found = [c.uuid for s in services for c in s.characteristics]
+                services = client.services
+                if services is None or services.get_characteristic(notify_uuid) is None:
+                    found = [c.uuid for s in services for c in s.characteristics] if services else []
                     raise RuntimeError(
                         f"characteristic {notify_uuid} nao encontrada apos descoberta de "
                         f"servicos (encontradas: {found or 'nenhuma'}) -- no Linux, tente parear "

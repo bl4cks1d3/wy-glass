@@ -11,6 +11,7 @@ inicializacao de biblioteca nativa isolada em threads dedicadas.
 """
 
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -18,6 +19,17 @@ BASE_DIR = Path(__file__).parent
 ICON_PATH = BASE_DIR / "static" / "icon.png"
 
 _icon = None
+
+
+def _has_display() -> bool:
+    """No Windows sempre ha uma area de trabalho pra bandeja. No Linux/macOS (X11/Wayland),
+    so existe se as variaveis de ambiente correspondentes estiverem setadas -- ausentes numa
+    sessao SSH sem ambiente grafico, como um Raspberry Pi headless. Sem essa checagem, cada
+    tentativa falhava tarde (dentro do pystray/Tk) com uma mensagem confusa tipo
+    'Bad display name \"\"' em vez de simplesmente nao tentar."""
+    if sys.platform == "win32":
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
 
 
 def _open_dashboard(icon=None, item=None):
@@ -45,6 +57,10 @@ def start():
     """Inicia o icone da bandeja numa thread dedicada — nao bloqueia o chamador. Falha
     silenciosamente (so loga) se pystray/Pillow nao estiverem disponiveis ou o ambiente nao
     tiver bandeja de sistema — nunca deve impedir o servidor de subir por causa disso."""
+    if not _has_display():
+        print("[tray_icon] sem ambiente grafico (headless) — icone da bandeja desativado", flush=True)
+        return
+
     def _run():
         global _icon
         try:

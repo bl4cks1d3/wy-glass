@@ -68,6 +68,10 @@ INTENT_EXAMPLES: dict[str, list[str]] = {
         "muda pro modo serio", "fica mais serio agora", "vira o modo serio",
         "seja mais formal comigo", "responde de forma mais formal",
     ],
+    "set_persona:mordomo": [
+        "modo mordomo", "vira o mordomo", "fica sarcastico", "volta o jarvis classico",
+        "modo jarvis classico", "fica mais sarcastico",
+    ],
     "set_persona:brincalhao": [
         "muda pro modo brincalhao", "fica mais brincalhao agora", "fica brincalhao",
         "vira o modo engracado", "conta umas piadas", "fica mais descontraido",

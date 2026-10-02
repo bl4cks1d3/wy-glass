@@ -36,3 +36,7 @@ android-app/local.properties
 android-app/app/src/main/assets/tts/*.onnx
 android-app/app/src/main/assets/tts/espeak-ng-data/
 android-app/app/libs/*.aar
+
+# Claude Code local (permissoes e locks da maquina)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock

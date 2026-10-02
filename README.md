@@ -132,7 +132,7 @@ Detalhes de parâmetros de cada ação: [`docs/06-referencia-acoes.md`](docs/06-
 ### 3.4 Mapeamento atual
 
 - **Botão 1 · clique simples** → `open_jarvis_agent` (um turno)
-- **Botão 1 · clique duplo** → `open_jarvis_agent` em modo conversacional contínuo
+- **Botão 1 · clique duplo** → `live_agent` — liga/desliga o **modo Live** (voz realtime, §3.8). O mapeamento antigo (modo conversa clássico) fica guardado em `config.json > gestures_disabled`
 - **Botão 1 · clique triplo** → `translator_agent`
 - **Botão 2 · clique simples** → encerra a conversa
 - **Botão 2 · clique duplo** → abre o dashboard
@@ -149,6 +149,39 @@ O servidor roda como processo oculto (`pythonw.exe`, sem janela de console), ind
 ### 3.7 Ativação por voz e reconhecimento de locutor
 
 Além do botão físico, é possível ativar o assistente dizendo **"Hey Jarvis"** — detecção 100% local via `openWakeWord`, sem custo de API enquanto a palavra não é dita. Opcionalmente, dá pra restringir isso à sua voz especificamente (`python enroll_voice.py` cadastra um perfil local, `voice_profile.npy`, nunca enviado a lugar nenhum) — sem cadastro, qualquer voz aciona a wake word normalmente. O botão físico nunca passa por essa checagem (pressionar o botão já é, por si só, intencional). Detalhes: `docs/06-referencia-acoes.md` §6.3-6.4.
+
+### 3.8 Modo Live — voz realtime, agentes e interface orbital
+
+```
+mic dos óculos ──stream PCM 16k──► Gemini Live (gemini-3.8-live, speech-to-speech)
+                                       │  barge-in · transcrição ao vivo · tool calling
+alto-falante ◄──stream PCM 24k─────────┤
+                                       ├─► skills/ + MCP (mesmas tools do agente clássico)
+                                       └─► delegate_task ─┬─► Pesquisador / Operador / Generalista
+                                                          │     (smart_agent.run_agent_task via 9router · OmniRoute · Groq)
+                                                          └─► Claude (Claude Code CLI headless, assinatura)
+```
+
+- **`live_agent.py`** — sessão full-duplex com a Gemini Live API em thread/event loop próprios (mesmo isolamento do `mcp_client.py`). Gate anti-eco pros óculos open-ear: enquanto o modelo fala, só passa áudio do mic acima de `live.barge_in_rms`. Renova a sessão sozinho (`session_resumption` + `context_window_compression`).
+- **Agentes** — o modelo de voz delega tarefas de vários passos via `delegate_task`. Os agentes de texto rodam pelo gateway configurado; o agente **Claude** chama `claude -p` com o login da sua assinatura (`claude_code_agent.py`; `ANTHROPIC_API_KEY` é removida do ambiente pra não cair na cobrança por API). Por padrão só ferramentas de leitura + web (`claude_code.allowed_tools`).
+- **9router** — gateway OpenAI-compatible local (`npm i -g 9router && 9router`, dashboard em `localhost:20128`). Ligue em `config.json > nine_router.enabled` e escolha o `model` (combo ou `provedor/modelo` do dashboard). Tem precedência sobre o OmniRoute (mesma porta). Saúde em `GET /api/gateway/health`. Não use o provedor "Claude Code" OAuth do 9router: rotear o token da assinatura por proxy de terceiro viola os termos; pra Claude, use o agente Claude acima.
+- **Interface `/orb`** — orbe estilo Siri/visionOS que reage ao nível do mic (ouvindo) e da voz (falando), anéis orbitais 3D com os agentes/tools como satélites que acendem quando trabalham, legendas ao vivo e feed de atividade. Espaço liga/desliga. Abre como janela de app pelo ícone da bandeja (**Abrir Wy Glass Live**).
+
+| Endpoint | Função |
+|---|---|
+| `GET /orb` | Interface Live |
+| `GET /api/live` | Estado, modelo, voz, gateway, agentes disponíveis |
+| `POST /api/live/start` · `/api/live/stop` | Liga/desliga a sessão |
+| `GET /api/gateway/health` | Testa 9router/OmniRoute listando modelos |
+
+- **Painel de ajustes** (botão de controles no dock ou `Ctrl+,`) — estilo Ajustes do macOS, autosave em `config.json` via `POST /api/config`: Perfil, Voz Live, Agentes (9router com teste de conexão, Claude Code, OmniRoute), Gestos (ação, parâmetros JSON, testar), Ferramentas (liga/desliga cada skill/MCP), Óculos (status BLE, reconectar, ações reais, bateria, escuta passiva) e Chaves de API.
+- **Perfil** — `config.json > user_profile` (`user_name`, `user_role`, `user_context`) é a fonte única do perfil, injetado em toda ação e no Live (antes ficava repetido nos params de cada gesto). Persona padrão: **parceiro técnico**; o Jarvis sarcástico clássico virou a persona `mordomo` ("modo mordomo").
+
+- **MCPs do ecossistema brain** — `config.json > mcp_servers` conecta o **current-brain** (segundo cérebro, de `repo/currentBrain`) e o **planner-life** (de `repo/brain-agents/services/planner`, mesmo caminho do Claude global). Cada servidor declara `tools` (allowlist): o brain expõe 45 tools, o modelo de voz recebe só 13 (contexto, busca, metas, links, repos, criadores); o planner, 5 (sem exclusões por voz). Pro resto, o Jarvis delega ao agente **Cérebro**. Campos por servidor: `command`, `args`, `env`, `cwd`, `tools`, `exclude_tools`, `connect_timeout`. Painel → Servidores MCP liga/desliga servidor e tool e reconecta (`GET /api/mcp`, `POST /api/mcp/reconnect`). O planner-life precisa do Planner Core rodando em `:4000` (`pnpm dev:core`).
+
+- **Controle do PC** ([pc_control.py](pc_control.py) + `skills/pc_*.py`) — `pc_apps` (abrir/fechar/focar/listar; resolve apelidos, protocolos `spotify:`/`whatsapp:` e atalhos do Menu Iniciar), `pc_window` (minimizar, maximizar, encaixar, área de trabalho), `pc_keyboard` (digitar com acentos, atalhos, clipboard), `pc_media` (play/pause, faixas, volume exato via pycaw), `pc_click` (clique por descrição: print → Gemini aponta o elemento em coordenada 0-1000 → pyautogui clica; `gemini-3.5-flash-lite` sem raciocínio, ~4s, com fallback) e `pc_system` (bloquear, status; desligar/reiniciar/suspender só com `confirmed=true` depois do sim falado, e desligar espera 30s cancelável). Fechar app manda `WM_CLOSE`, nunca mata processo. O agente **Operador** recebe todas as `pc_*` para sequências longas.
+
+Config (`config.json`): `user_profile`, `mcp_servers`, `live` (`model`, `voice`, `barge_in_rms`, `silence_ms`), `nine_router` (`enabled`, `base_url`, `api_key`, `model`), `claude_code` (`enabled`, `exe`, `cwd`, `allowed_tools`, `permission_mode`, `model`, `timeout_seconds`).
 
 ---
 

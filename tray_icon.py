@@ -37,6 +37,11 @@ def _open_dashboard(icon=None, item=None):
     dashboard_launcher.open_dashboard()
 
 
+def _open_orb(icon=None, item=None):
+    import dashboard_launcher
+    dashboard_launcher.open_orb()
+
+
 def _quit(icon, item):
     icon.stop()
     os._exit(0)  # encerra o processo do servidor inteiro, nao so a bandeja
@@ -47,7 +52,8 @@ def _build_icon():
     from PIL import Image
     image = Image.open(ICON_PATH)
     menu = pystray.Menu(
-        pystray.MenuItem("Abrir Dashboard", _open_dashboard, default=True),
+        pystray.MenuItem("Abrir Wy Glass Live", _open_orb, default=True),
+        pystray.MenuItem("Abrir Dashboard", _open_dashboard),
         pystray.MenuItem("Sair", _quit),
     )
     return pystray.Icon("wyglass", image, "Wy Glass", menu)

@@ -273,6 +273,9 @@ class DashboardApp:
         self.pl_enabled_var = tk.BooleanVar()
         self.clap_enabled_var = tk.BooleanVar()
 
+        # FERRAMENTAS tab — checkbox por skill/ferramenta MCP disponivel
+        self.skill_vars: dict[str, tk.BooleanVar] = {}
+
         self._build_style()
         self._build_ui()
 
@@ -327,13 +330,16 @@ class DashboardApp:
 
         self.tab_status = tk.Frame(self.notebook, bg=BG0)
         self.tab_gestures = tk.Frame(self.notebook, bg=BG0)
+        self.tab_skills = tk.Frame(self.notebook, bg=BG0)
         self.tab_config = tk.Frame(self.notebook, bg=BG0)
         self.notebook.add(self.tab_status, text="  STATUS  ")
         self.notebook.add(self.tab_gestures, text="  GESTOS  ")
+        self.notebook.add(self.tab_skills, text="  FERRAMENTAS  ")
         self.notebook.add(self.tab_config, text="  CONFIGURAÇÕES  ")
 
         self._build_status_tab(self.tab_status)
         self._build_gestures_tab(self.tab_gestures)
+        self._build_skills_tab(self.tab_skills)
         self._build_config_tab(self.tab_config)
 
     # ---------- STATUS tab ----------
@@ -556,6 +562,219 @@ class DashboardApp:
 
         threading.Thread(target=call, daemon=True).start()
 
+    # ---------- FERRAMENTAS tab ----------
+
+    def _build_skills_tab(self, parent):
+        parent.columnconfigure(0, weight=1)
+        parent.rowconfigure(0, weight=1)
+
+        panel = HudPanel(parent, "SKILLS / FERRAMENTAS DO AGENTE")
+        panel.grid(row=0, column=0, sticky="nsew")
+        tk.Label(
+            panel.body,
+            text="skills locais (skills/*.py) + ferramentas de servidores MCP conectados — desmarque pra "
+                 "impedir o agente de usar uma ferramenta especifica. Um gesto pode sobrescrever isso com seu "
+                 "proprio \"allowed_skills\" nos parâmetros (aba GESTOS).",
+            bg=BG1, fg=TEXT2, font=FONT_SUBTITLE, wraplength=700, justify="left",
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        outer, inner = scrollable(panel.body, bg=BG1)
+        outer.pack(fill="both", expand=True, padx=12, pady=(0, 4))
+        self.skills_list_frame = inner
+
+        self.skills_placeholder = tk.Label(inner, text="carregando ferramentas do servidor...",
+                                            bg=BG1, fg=TEXT2, font=FONT_MONO_SM)
+        self.skills_placeholder.pack(anchor="w", pady=6)
+
+        btn_row = tk.Frame(panel.body, bg=BG1)
+        btn_row.pack(fill="x", padx=12, pady=(4, 12))
+        tk.Button(btn_row, text="RECARREGAR", command=self._load_skills, bg=BG2, fg=TEXT1,
+                  activebackground=BG3, relief="flat", font=FONT_MONO_BOLD, padx=10, pady=4,
+                  cursor="hand2").pack(side="left")
+        tk.Button(btn_row, text="SALVAR", command=self._save_skills, bg=BG2, fg=CYAN,
+                  activebackground=BG3, relief="flat", font=FONT_MONO_BOLD, padx=10, pady=4,
+                  cursor="hand2").pack(side="left", padx=(8, 0))
+        tk.Button(btn_row, text="MARCAR TODAS", command=lambda: self._set_all_skills(True), bg=BG2, fg=TEXT1,
+                  activebackground=BG3, relief="flat", font=FONT_MONO_SM, padx=10, pady=4,
+                  cursor="hand2").pack(side="left", padx=(16, 0))
+        tk.Button(btn_row, text="DESMARCAR TODAS", command=lambda: self._set_all_skills(False), bg=BG2, fg=TEXT1,
+                  activebackground=BG3, relief="flat", font=FONT_MONO_SM, padx=10, pady=4,
+                  cursor="hand2").pack(side="left", padx=(6, 0))
+        tk.Button(btn_row, text="+ CRIAR SKILL", command=self._open_create_skill_dialog, bg=BG2, fg=GREEN,
+                  activebackground=BG3, relief="flat", font=FONT_MONO_BOLD, padx=10, pady=4,
+                  cursor="hand2").pack(side="right")
+
+        self.root.after(300, self._load_skills)
+
+    def _load_skills(self):
+        def call():
+            try:
+                data = requests.get(f"{BASE_URL}/api/skills", timeout=5).json()
+                self.event_queue.put({"type": "_skills", "data": data})
+            except requests.RequestException as e:
+                self.event_queue.put({"type": "_log", "tag": "err", "text": f"falha ao carregar ferramentas: {e}"})
+
+        threading.Thread(target=call, daemon=True).start()
+
+    def _apply_skills(self, data: dict):
+        for child in self.skills_list_frame.winfo_children():
+            child.destroy()
+        self.skill_vars.clear()
+        skills = data.get("skills", [])
+        if not skills:
+            tk.Label(self.skills_list_frame, text="nenhuma ferramenta carregada", bg=BG1, fg=TEXT2,
+                      font=FONT_MONO_SM).pack(anchor="w")
+            return
+        for skill in skills:
+            name = skill["name"]
+            var = tk.BooleanVar(value=skill.get("enabled", True))
+            self.skill_vars[name] = var
+            row = tk.Frame(self.skills_list_frame, bg=BG1)
+            row.pack(fill="x", pady=2, anchor="w")
+            tk.Checkbutton(row, text=name, variable=var, bg=BG1, fg=CYAN, selectcolor=BG2,
+                            activebackground=BG1, font=FONT_MONO_BOLD, anchor="w",
+                            width=20).pack(side="left")
+            desc = skill.get("description", "")
+            if len(desc) > 90:
+                desc = desc[:87] + "..."
+            tk.Label(row, text=desc, bg=BG1, fg=TEXT2, font=FONT_SUBTITLE, anchor="w").pack(
+                side="left", fill="x", expand=True, padx=(8, 0))
+            if skill.get("generated"):
+                tk.Button(row, text="apagar", command=lambda n=name: self._delete_skill(n),
+                          bg=BG1, fg=RED, activebackground=BG1, activeforeground=RED,
+                          relief="flat", font=FONT_SUBTITLE, bd=0, cursor="hand2").pack(side="right")
+
+    def _set_all_skills(self, value: bool):
+        for var in self.skill_vars.values():
+            var.set(value)
+
+    def _save_skills(self):
+        checked = [name for name, var in self.skill_vars.items() if var.get()]
+        # todas marcadas = comportamento padrao (enabled_skills=None), pra nao ter que
+        # atualizar essa lista toda vez que uma skill nova for adicionada ao disco
+        value = None if len(checked) == len(self.skill_vars) else checked
+        self.config_cache["enabled_skills"] = value
+        self._post_config({"enabled_skills": value}, "ferramentas salvas")
+
+    def _delete_skill(self, name: str):
+        def call():
+            try:
+                resp = requests.post(f"{BASE_URL}/api/skills/delete", json={"name": name}, timeout=5)
+                if resp.ok and resp.json().get("ok"):
+                    self.event_queue.put({"type": "_log", "tag": "ok", "text": f"skill '{name}' apagada"})
+                    self.event_queue.put({"type": "_reload_skills"})
+                else:
+                    err = resp.json().get("error", resp.text)
+                    self.event_queue.put({"type": "_log", "tag": "err", "text": f"falha ao apagar '{name}': {err}"})
+            except requests.RequestException as e:
+                self.event_queue.put({"type": "_log", "tag": "err", "text": f"falha ao apagar '{name}': {e}"})
+
+        threading.Thread(target=call, daemon=True).start()
+
+    # ---------- criador de skill (dialogo) ----------
+
+    def _open_create_skill_dialog(self):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Criar skill")
+        dlg.configure(bg=BG0)
+        dlg.geometry("560x600")
+        dlg.transient(self.root)
+
+        def field(label_text, height=1):
+            tk.Label(dlg, text=label_text, bg=BG0, fg=TEXT1, font=FONT_MONO_SM, anchor="w").pack(
+                fill="x", padx=14, pady=(10, 2))
+            if height == 1:
+                var = tk.StringVar()
+                tk.Entry(dlg, textvariable=var, bg=BG2, fg=TEXT0, insertbackground=CYAN,
+                          relief="flat", font=FONT_MONO_SM, highlightbackground=BORDER,
+                          highlightthickness=1).pack(fill="x", padx=14)
+                return var
+            else:
+                txt = tk.Text(dlg, bg=BG2, fg=TEXT0, insertbackground=CYAN, relief="flat",
+                               font=FONT_MONO_SM, height=height, highlightbackground=BORDER,
+                               highlightthickness=1)
+                txt.pack(fill="x", padx=14)
+                return txt
+
+        name_var = field("NOME (letras minusculas, numeros, _ — ex: abrir_spotify)")
+        desc_txt = field("DESCRIÇÃO (o que o modelo le pra saber quando chamar essa skill)", height=3)
+
+        tk.Label(dlg, text="TIPO DE AÇÃO", bg=BG0, fg=TEXT1, font=FONT_MONO_SM, anchor="w").pack(
+            fill="x", padx=14, pady=(10, 2))
+        action_var = tk.StringVar(value="run_command")
+        action_combo = ttk.Combobox(dlg, textvariable=action_var, state="readonly", font=FONT_MONO_SM,
+                                     values=["run_command", "open_url", "key_shortcut", "screenshot"])
+        action_combo.pack(fill="x", padx=14)
+
+        static_hint = {
+            "run_command": '{"command": "spotify.exe", "args": []}',
+            "open_url": '{"url": "https://youtube.com/results?search_query={query}"}',
+            "key_shortcut": '{"keys": "ctrl+shift+s"}',
+            "screenshot": '{"folder": "./screenshots"}',
+        }
+        tk.Label(dlg, text="PARÂMETROS FIXOS (JSON) — use {nome} pra um valor que o modelo preenche",
+                 bg=BG0, fg=TEXT1, font=FONT_MONO_SM, anchor="w").pack(fill="x", padx=14, pady=(10, 2))
+        static_txt = tk.Text(dlg, bg=BG2, fg=TEXT0, insertbackground=CYAN, relief="flat",
+                              font=FONT_MONO_SM, height=3, highlightbackground=BORDER, highlightthickness=1)
+        static_txt.insert("1.0", static_hint["run_command"])
+        static_txt.pack(fill="x", padx=14)
+
+        def _on_action_change(_evt=None):
+            static_txt.delete("1.0", "end")
+            static_txt.insert("1.0", static_hint.get(action_var.get(), "{}"))
+
+        action_combo.bind("<<ComboboxSelected>>", _on_action_change)
+
+        tk.Label(dlg, text='PARÂMETROS QUE O MODELO PREENCHE (JSON) — ex: [{"name": "query", "description": "o que buscar"}]',
+                 bg=BG0, fg=TEXT1, font=FONT_MONO_SM, anchor="w", wraplength=520, justify="left").pack(
+            fill="x", padx=14, pady=(10, 2))
+        model_params_txt = tk.Text(dlg, bg=BG2, fg=TEXT0, insertbackground=CYAN, relief="flat",
+                                     font=FONT_MONO_SM, height=4, highlightbackground=BORDER, highlightthickness=1)
+        model_params_txt.insert("1.0", "[]")
+        model_params_txt.pack(fill="x", padx=14)
+
+        error_label = tk.Label(dlg, text="", bg=BG0, fg=RED, font=FONT_MONO_SM, anchor="w", wraplength=520, justify="left")
+        error_label.pack(fill="x", padx=14, pady=(8, 0))
+
+        def _submit():
+            try:
+                static_params = json.loads(static_txt.get("1.0", "end").strip() or "{}")
+                model_params = json.loads(model_params_txt.get("1.0", "end").strip() or "[]")
+            except json.JSONDecodeError as e:
+                error_label.config(text=f"JSON inválido: {e}")
+                return
+            body = {
+                "name": name_var.get().strip(),
+                "description": desc_txt.get("1.0", "end").strip(),
+                "action_type": action_var.get(),
+                "static_params": static_params,
+                "model_params": model_params,
+            }
+
+            def call():
+                try:
+                    resp = requests.post(f"{BASE_URL}/api/skills/create", json=body, timeout=5)
+                    data = resp.json()
+                    if data.get("ok"):
+                        self.event_queue.put({"type": "_log", "tag": "ok", "text": f"skill '{body['name']}' criada"})
+                        self.event_queue.put({"type": "_reload_skills"})
+                        self.event_queue.put({"type": "_close_dialog", "dialog": dlg})
+                    else:
+                        self.event_queue.put({"type": "_dialog_error", "dialog_label": error_label, "text": data.get("error", "erro desconhecido")})
+                except requests.RequestException as e:
+                    self.event_queue.put({"type": "_dialog_error", "dialog_label": error_label, "text": str(e)})
+
+            threading.Thread(target=call, daemon=True).start()
+
+        btn_row = tk.Frame(dlg, bg=BG0)
+        btn_row.pack(fill="x", padx=14, pady=14)
+        tk.Button(btn_row, text="CRIAR", command=_submit, bg=BG2, fg=GREEN, activebackground=BG3,
+                  relief="flat", font=FONT_MONO_BOLD, padx=12, pady=5, cursor="hand2").pack(side="left")
+        tk.Button(btn_row, text="CANCELAR", command=dlg.destroy, bg=BG2, fg=TEXT1, activebackground=BG3,
+                  relief="flat", font=FONT_MONO_BOLD, padx=12, pady=5, cursor="hand2").pack(side="left", padx=(8, 0))
+
+        _on_action_change()
+
     # ---------- CONFIGURAÇÕES tab ----------
 
     def _build_config_tab(self, parent):
@@ -680,6 +899,14 @@ class DashboardApp:
             self._apply_status(msg["data"])
         elif t == "_server_unreachable":
             self._set_connected(False, "SERVIDOR OFFLINE")
+        elif t == "_skills":
+            self._apply_skills(msg["data"])
+        elif t == "_reload_skills":
+            self._load_skills()
+        elif t == "_close_dialog":
+            msg["dialog"].destroy()
+        elif t == "_dialog_error":
+            msg["dialog_label"].config(text=msg.get("text", ""))
         elif t == "_log":
             self._append_log(msg.get("text", ""), msg.get("tag", "dim"))
         elif t == "status":

@@ -38,3 +38,25 @@ def open_dashboard() -> str:
     proc = subprocess.Popen([sys.executable, str(BASE_DIR / "dashboard.py")], cwd=str(BASE_DIR))
     LOCK_FILE.write_text(str(proc.pid))
     return "dashboard aberto"
+
+
+ORB_URL = "http://127.0.0.1:8731/orb"
+
+
+def open_orb() -> str:
+    """Abre a interface Live (/orb) como janela de app: Edge/Chrome em modo --app (sem barra de
+    endereco/abas). Sem nenhum dos dois, cai pro navegador padrao."""
+    import shutil
+    import webbrowser
+    candidates = [
+        shutil.which("msedge"), shutil.which("chrome"),
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    ]
+    exe = next((c for c in candidates if c and Path(c).is_file()), None)
+    if exe:
+        subprocess.Popen([exe, f"--app={ORB_URL}", "--window-size=520,860"])
+    else:
+        webbrowser.open(ORB_URL)
+    return "interface live aberta"

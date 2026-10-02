@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 import uvicorn
 
 from bleak import BleakClient, BleakScanner
@@ -66,6 +66,7 @@ class State:
         self.conversation_task = None
         self.battery_percent: int | None = None
         self.battery_low_warned = False
+        self.loop: asyncio.AbstractEventLoop | None = None
 
 
 state = State()
@@ -96,12 +97,40 @@ async def broadcast(payload: dict):
     state.websockets -= dead
 
 
+NINE_ROUTER_DEFAULT_URL = "http://localhost:20128/v1"
+
+
+def effective_gateway() -> dict:
+    """Gateway LLM OpenAI-compatible usado pelos agentes de texto (smart_agent.ask_groq). 9router
+    (config.json > nine_router) tem precedencia sobre OmniRoute quando os dois estao ligados —
+    os dois escutam por padrao na mesma porta 20128, entao na pratica so um roda por vez. Devolve
+    no formato que ask_groq ja entende (o antigo campo omni_route), com base_url ja apontando pro
+    endpoint de chat completions."""
+    nr = state.config.get("nine_router") or {}
+    if nr.get("enabled"):
+        base = (nr.get("base_url") or NINE_ROUTER_DEFAULT_URL).rstrip("/")
+        if not base.endswith("/chat/completions"):
+            base += "/chat/completions"
+        return {"enabled": True, "provider": "9router", "base_url": base,
+                "api_key": nr.get("api_key", ""), "model": nr.get("model") or "auto"}
+    omni = dict(state.config.get("omni_route") or {})
+    if omni.get("enabled"):
+        omni["provider"] = "omniroute"
+    return omni
+
+
 async def run_action_async(action_type: str, params: dict) -> str:
     # Credentials (Groq/Tavily/Gemini keys) are glasses-wide capabilities, not
     # tied to any one gesture — merged in here so every action sees them
     # without each gesture having to repeat the same key in its own params.
     # A gesture's own params still win on collision (explicit override).
-    merged = {**state.config.get("credentials", {}), **params}
+    merged = {
+        **state.config.get("user_profile", {}),
+        **state.config.get("credentials", {}),
+        "omni_route": effective_gateway(),
+        "enabled_skills": state.config.get("enabled_skills"),  # None = todas habilitadas
+        **params,
+    }
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, actions.run_action, action_type, merged)
 
@@ -134,6 +163,11 @@ async def stop_conversation(gesture_key: str, raw_hex: str):
     # Corta a fala em andamento na hora, independente de ter conversa ativa ou nao — clique no
     # botao 2 durante a reproducao interrompe o TTS imediatamente, em vez de esperar a frase
     # inteira terminar antes de fazer efeito.
+    if _live_running():
+        await stop_live()
+        await broadcast({"type": "gesture", "gesture": gesture_key, "label": "Encerrar modo live",
+                          "raw": raw_hex, "time": ts(), "note": ""})
+        return
     await asyncio.get_event_loop().run_in_executor(None, _stop_speaking_blocking)
     was_active = state.conversation_active
     state.conversation_active = False
@@ -182,6 +216,64 @@ async def conversation_loop(gesture_key: str, gcfg: dict):
     await broadcast({"type": "conversation", "status": "ended"})
 
 
+def _live_agent():
+    import live_agent
+    return live_agent
+
+
+def _live_cfg(overrides: dict | None = None) -> dict:
+    """Monta a config da sessao live: credenciais globais + config.json > live + params do gesto
+    que disparou (overrides), nessa ordem de precedencia crescente."""
+    creds = state.config.get("credentials", {})
+    profile = state.config.get("user_profile", {})
+    return {
+        "google_api_key": creds.get("google_api_key", ""),
+        "groq_api_key": creds.get("groq_api_key", ""),
+        "tavily_api_key": creds.get("tavily_api_key", ""),
+        "gateway": effective_gateway(),
+        "user_name": profile.get("user_name", "Chefe"),
+        "user_role": profile.get("user_role", ""),
+        "user_context": profile.get("user_context", ""),
+        "allowed_skills": state.config.get("enabled_skills"),
+        "claude_code": state.config.get("claude_code") or {},
+        **(state.config.get("live") or {}),
+        **(overrides or {}),
+    }
+
+
+def _on_live_event(payload: dict):
+    """Chamado da thread do live_agent — repassa pro event loop principal."""
+    if payload.get("type") == "live_state" and payload.get("status") == "idle":
+        _passive_listener().resume()
+    asyncio.run_coroutine_threadsafe(broadcast(payload), state.loop)
+
+
+def _start_live_blocking(cfg: dict) -> bool:
+    # sempre via run_in_executor: live_agent puxa audio_capture/sounddevice (mesma razao de
+    # _speak_blocking — nunca importar isso na thread do event loop)
+    _passive_listener().pause()
+    started = _live_agent().start(cfg, _on_live_event)
+    if not started:
+        _passive_listener().resume()
+    return started
+
+
+async def start_live(overrides: dict | None = None) -> bool:
+    state.conversation_active = False  # live substitui o modo conversa classico
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _start_live_blocking, _live_cfg(overrides))
+
+
+async def stop_live():
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, lambda: _live_agent().stop())
+
+
+def _live_running() -> bool:
+    mod = sys.modules.get("live_agent")
+    return bool(mod and mod.is_running())
+
+
 async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
     gcfg = state.config["gestures"].get(gesture_key)
 
@@ -199,6 +291,13 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
     if not state.config.get("actions_enabled", False):
         await broadcast({"type": "action_result", "gesture": gesture_key, "ok": True,
                           "message": "modo teste — acao nao executada", "time": ts()})
+        return
+
+    if gcfg.get("action") == "live_agent":
+        if _live_running():
+            await stop_live()
+        else:
+            await start_live(gcfg.get("params"))
         return
 
     if gcfg.get("params", {}).get("conversation_mode"):
@@ -286,7 +385,7 @@ async def _speak_connect_greeting(loop):
     try:
         gcfg = state.config.get("gestures", {}).get("button1_single", {}).get("params", {})
         session_id = gcfg.get("session_id", "wyglass")
-        user_name = gcfg.get("user_name", "sankofa")
+        user_name = gcfg.get("user_name") or state.config.get("user_profile", {}).get("user_name", "Chefe")
         tts_model = gcfg.get("tts_model", "pt_BR-faber-medium.onnx")
         await loop.run_in_executor(None, _connect_greeting_blocking, user_name, tts_model, session_id)
     except Exception as e:
@@ -429,15 +528,31 @@ async def battery_monitor():
 
 @app.on_event("startup")
 async def startup():
+    state.loop = asyncio.get_event_loop()
     state.ble_task = asyncio.create_task(ble_manager())
     asyncio.create_task(groq_model_healthcheck())
     asyncio.create_task(battery_monitor())
+    # Conecta nos servidores MCP configurados (config.json > mcp_servers) — roda no proprio
+    # loop asyncio do mcp_client (thread dedicada, ver mcp_client.py), entao nao bloqueia o
+    # startup do resto do servidor mesmo se um servidor MCP demorar/falhar pra conectar.
+    loop = asyncio.get_event_loop()
+    mcp_servers = state.config.get("mcp_servers", [])
+    if mcp_servers:
+        import mcp_client
+        loop.run_in_executor(None, mcp_client.connect_configured_servers, mcp_servers)
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    if _live_running():
+        await stop_live()
     _passive_listener().stop()
     _audio_capture().get_capture_manager().stop()
+    try:
+        import mcp_client
+        mcp_client.disconnect_all()
+    except Exception:
+        pass
     try:
         import browser_tools
         browser_tools.close()
@@ -445,9 +560,27 @@ async def shutdown():
         pass
 
 
+# paginas mudam a cada deploy local -- sem isso o navegador serve a versao velha do cache
+_NO_CACHE = {"Cache-Control": "no-cache"}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def landing():
-    return FileResponse(BASE_DIR / "static" / "landing.html")
+    return FileResponse(BASE_DIR / "static" / "landing.html", headers=_NO_CACHE)
+
+
+@app.get("/orb", response_class=HTMLResponse)
+async def orb_page():
+    return FileResponse(BASE_DIR / "static" / "orb.html", headers=_NO_CACHE)
+
+
+@app.get("/static/{name}")
+async def static_file(name: str):
+    static_dir = (BASE_DIR / "static").resolve()
+    path = (static_dir / name).resolve()
+    if path.parent != static_dir or not path.is_file():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(path, headers=_NO_CACHE)
 
 
 @app.get("/deck", response_class=HTMLResponse)
@@ -495,6 +628,123 @@ async def test_gesture(gesture_key: str):
     return {"ok": True}
 
 
+@app.get("/api/skills")
+async def get_skills():
+    """Lista todas as ferramentas do harness (skills locais em skills/*.py + qualquer servidor
+    MCP conectado — ver skills_registry.py/mcp_client.py), junto com se cada uma esta habilitada
+    globalmente (config.json > enabled_skills; None/ausente = todas habilitadas, igual ao
+    comportamento de sempre). Usado pela aba FERRAMENTAS do dashboard."""
+    import skills_registry
+    enabled = state.config.get("enabled_skills")
+    tools = skills_registry.get_all_tools()
+    return {
+        "skills": [
+            {
+                "name": t["function"]["name"],
+                "description": t["function"]["description"],
+                "enabled": enabled is None or t["function"]["name"] in enabled,
+                "generated": skills_registry.is_generated(t["function"]["name"]),
+            }
+            for t in tools
+        ],
+        "all_enabled": enabled is None,
+        "action_types": skills_registry._ACTION_TYPES,
+    }
+
+
+@app.post("/api/skills/create")
+async def create_skill(body: dict):
+    """Cria uma skill nova a partir do formulario da aba FERRAMENTAS — nunca executa codigo
+    escrito pelo usuario, so gera um arquivo skills/*.py que delega pra uma acao ja existente
+    e vetada em actions.py (ver skills_registry.create_skill)."""
+    import skills_registry
+    try:
+        filename = skills_registry.create_skill(
+            name=body.get("name", ""),
+            description=body.get("description", ""),
+            action_type=body.get("action_type", ""),
+            static_params=body.get("static_params", {}),
+            model_params=body.get("model_params", []),
+        )
+        return {"ok": True, "filename": filename}
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+@app.post("/api/skills/delete")
+async def delete_skill(body: dict):
+    import skills_registry
+    try:
+        skills_registry.delete_skill(body.get("name", ""))
+        return {"ok": True}
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+@app.get("/api/live")
+async def live_status():
+    mod = sys.modules.get("live_agent")
+    live_cfg = state.config.get("live") or {}
+    gw = effective_gateway()
+    return {
+        "running": _live_running(),
+        "status": mod.status() if mod else "idle",
+        "model": live_cfg.get("model") or "gemini-3.8-live",
+        "voice": live_cfg.get("voice") or "Charon",
+        "gateway": {"provider": gw.get("provider", "groq") if gw.get("enabled") else "groq",
+                     "model": gw.get("model") if gw.get("enabled") else "openai/gpt-oss-20b"},
+        "agents": _live_agent().agents_info({"claude_code": state.config.get("claude_code") or {}}),
+    }
+
+
+@app.post("/api/live/start")
+async def live_start(body: dict | None = None):
+    if not state.config.get("credentials", {}).get("google_api_key"):
+        return JSONResponse({"ok": False, "error": "configure credentials.google_api_key"}, status_code=400)
+    started = await start_live(body or {})
+    return {"ok": True, "already_running": not started}
+
+
+@app.post("/api/live/stop")
+async def live_stop():
+    await stop_live()
+    return {"ok": True}
+
+
+@app.get("/api/gateway/health")
+async def gateway_health():
+    """Testa o gateway LLM configurado (9router/OmniRoute) listando os modelos expostos."""
+    import requests
+    gw = effective_gateway()
+    if not gw.get("enabled"):
+        return {"provider": "groq", "ok": True, "detail": "gateway desligado — agentes falam direto com a Groq"}
+    models_url = gw["base_url"].rsplit("/chat/completions", 1)[0] + "/models"
+    headers = {"Authorization": f"Bearer {gw['api_key']}"} if gw.get("api_key") else {}
+    loop = asyncio.get_event_loop()
+    try:
+        resp = await loop.run_in_executor(None, lambda: requests.get(models_url, headers=headers, timeout=3))
+        resp.raise_for_status()
+        ids = [m.get("id") for m in resp.json().get("data", [])]
+        return {"provider": gw["provider"], "ok": True, "models": ids[:200], "model": gw.get("model")}
+    except Exception as e:
+        return JSONResponse({"provider": gw["provider"], "ok": False, "error": str(e)}, status_code=502)
+
+
+@app.get("/api/mcp")
+async def mcp_status():
+    import mcp_client
+    return {"servers": mcp_client.status(state.config.get("mcp_servers", []))}
+
+
+@app.post("/api/mcp/reconnect")
+async def mcp_reconnect():
+    """Reconecta todos os servidores MCP com a config atual (depois de editar no painel)."""
+    import mcp_client
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, mcp_client.reconnect, state.config.get("mcp_servers", []))
+    return {"servers": mcp_client.status(state.config.get("mcp_servers", []))}
+
+
 @app.post("/api/reconnect")
 async def reconnect():
     """Manual one-click reconnect (dashboard STATUS tab / botão CONECTAR). ble_manager() already
@@ -523,6 +773,8 @@ async def websocket_endpoint(ws: WebSocket):
         "connected": state.connected,
         "message": "conectado" if state.connected else "aguardando conexao...",
     })
+    mod = sys.modules.get("live_agent")
+    await ws.send_json({"type": "live_state", "status": mod.status() if mod else "idle", "detail": ""})
     if state.battery_percent is not None:
         threshold = state.config.get("battery_low_threshold", 20)
         await ws.send_json({"type": "battery", "percent": state.battery_percent,

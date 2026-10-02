@@ -37,18 +37,24 @@ def get_api_key(params: dict) -> str:
     return key
 
 
-def play_beep(frequency: float = 880.0, duration: float = 0.12, volume: float = 0.25):
+def play_beep(frequency: float = 880.0, duration: float = 0.18, volume: float = 0.5, count: int = 1):
     """Beep curto e sintetico (seno puro, sem Piper/onnxruntime — muito mais rapido que TTS)
     tocado como confirmacao audivel de "comecei a escutar", toda vez que record_audio_vad() vai
     abrir o microfone. Fade in/out de 10ms evita o estalo (click) que um tom cortado sem
-    transicao produziria no inicio/fim."""
+    transicao produziria no inicio/fim. `count` repete o beep (com um respiro entre eles) — usado
+    pra "comecei a escutar" (2x) soar claramente diferente de "parei de escutar" (1x), depois de
+    volume/duracao terem se mostrado curtos/baixos demais pra notar em uso real."""
     t = np.linspace(0, duration, int(SAMPLE_RATE * duration), endpoint=False)
     tone = (np.sin(2 * np.pi * frequency * t) * volume).astype(np.float32)
     fade_len = min(len(tone) // 2, max(1, int(SAMPLE_RATE * 0.01)))
     fade = np.linspace(0, 1, fade_len, dtype=np.float32)
     tone[:fade_len] *= fade
     tone[-fade_len:] *= fade[::-1]
-    sd.play(tone, samplerate=SAMPLE_RATE)
+    gap = np.zeros(int(SAMPLE_RATE * 0.08), dtype=np.float32)
+    sequence = tone
+    for _ in range(count - 1):
+        sequence = np.concatenate([sequence, gap, tone])
+    sd.play(sequence, samplerate=SAMPLE_RATE)
     sd.wait()
 
 
@@ -84,7 +90,7 @@ def record_audio_vad(
     opening a dedicated sd.InputStream — required once other listeners (wake word,
     clap detection) hold the mic's single exclusive capture stream open."""
     try:
-        play_beep()
+        play_beep(count=2)  # 2 bips = "pode falar", distinto do bip unico de "parei de escutar"
     except Exception:
         pass  # beep e so uma confirmacao sonora — nunca deve impedir a gravacao de verdade
     chunk_size = max(1, int(SAMPLE_RATE * chunk_ms / 1000))

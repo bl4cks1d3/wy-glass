@@ -1,243 +1,527 @@
-<!DOCTYPE html>
-<html lang="pt-br">
+<!doctype html>
+<html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<title>Wy Glass — v1</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 150'%3E%3Cpath d='M22 68 C6 60, 4 42, 20 30' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Cpath d='M218 68 C234 60, 236 42, 220 30' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Cpath d='M108 72 H132' stroke='%2328f5e0' stroke-width='11' stroke-linecap='round' fill='none'/%3E%3Crect x='18' y='48' width='92' height='72' rx='20' stroke='%2328f5e0' stroke-width='11' fill='black'/%3E%3Crect x='130' y='48' width='92' height='72' rx='20' stroke='%2328f5e0' stroke-width='11' fill='black'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wy Glass</title>
+<meta name="description" content="Óculos genéricos reprogramados por engenharia reversa de BLE, com voz em tempo real, agentes e segundo cérebro.">
+<link rel="icon" href="/static/icon.png">
 <style>
-  :root{
-    --bg-0:#05070a; --bg-1:#0b0f14; --bg-2:#0f151c;
-    --panel-border:#1c2830;
-    --cyan:#2af5e0; --cyan-soft:rgba(42,245,224,0.5);
-    --amber:#ffb020;
-    --text-0:#eaf6f5; --text-1:#8ba0a5; --text-2:#4d5e63;
+:root {
+  --bg: #000;
+  --bg-2: #0b0b0f;
+  --card: #111115;
+  --card-2: #16161b;
+  --line: rgba(255,255,255,0.09);
+  --text: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #6e6e73;
+  --accent: #2997ff;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
+  --grad: linear-gradient(90deg, #64d2ff 0%, #5e5ce6 35%, #bf5af2 65%, #ff375f 100%);
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #fbfbfd; --bg-2: #f5f5f7; --card: #fff; --card-2: #f5f5f7; --line: rgba(0,0,0,0.08);
+    --text: #1d1d1f; --text-2: #6e6e73; --text-3: #86868b; --accent: #0071e3;
   }
-  *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;}
-  body{
-    overflow-x:hidden;
-    background:var(--bg-0);
-    color:var(--text-0);
-    font-family:'JetBrains Mono', monospace;
-  }
-  .display{font-family:'Rajdhani',sans-serif; font-weight:700;}
+}
+:root[data-theme="light"] {
+  --bg: #fbfbfd; --bg-2: #f5f5f7; --card: #fff; --card-2: #f5f5f7; --line: rgba(0,0,0,0.08);
+  --text: #1d1d1f; --text-2: #6e6e73; --text-3: #86868b; --accent: #0071e3;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; line-height: 1.47; }
+a { color: inherit; text-decoration: none; }
+.wrap { width: min(1080px, calc(100vw - 32px)); margin: 0 auto; }
+.grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 
-  /* ---------------- background atmosphere ---------------- */
-  .atmosphere{
-    position:fixed; inset:0; z-index:0; pointer-events:none;
-    background:
-      radial-gradient(ellipse 900px 600px at 50% -10%, rgba(42,245,224,0.14), transparent 60%),
-      radial-gradient(ellipse 700px 500px at 90% 90%, rgba(255,176,32,0.07), transparent 55%),
-      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 1px, transparent 1px, transparent 4px);
-  }
-  .gridfloor{
-    position:fixed; left:0; right:0; bottom:0; height:60vh; z-index:0; pointer-events:none;
-    background-image:
-      linear-gradient(rgba(42,245,224,0.09) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(42,245,224,0.09) 1px, transparent 1px);
-    background-size:48px 48px;
-    -webkit-mask-image:linear-gradient(to top, black, transparent);
-            mask-image:linear-gradient(to top, black, transparent);
-    transform:perspective(500px) rotateX(60deg);
-    transform-origin:bottom;
-  }
+/* nav */
+nav {
+  position: sticky; top: 0; z-index: 50; height: 52px;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--line);
+}
+nav .wrap { height: 100%; display: flex; align-items: center; gap: 28px; }
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+.brand svg { width: 26px; height: 17px; }
+.links { display: flex; gap: 24px; margin-left: auto; font-size: 12.5px; color: var(--text-2); }
+.links a:hover { color: var(--text); }
+.nav-cta { font-size: 12.5px; font-weight: 500; padding: 5px 13px; border-radius: 999px; background: var(--accent); color: #fff; }
+@media (max-width: 720px) { .links { display: none; } .nav-cta { margin-left: auto; } }
 
-  main{position:relative; z-index:1;}
+/* hero */
+.hero { position: relative; min-height: calc(100svh - 52px); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 56px 16px 64px; overflow: hidden; }
+#heroOrb { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; }
+.hero > *:not(canvas) { position: relative; z-index: 1; }
+.eyebrow { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.hero h1 { font-size: clamp(48px, 9vw, 104px); font-weight: 700; letter-spacing: -0.045em; line-height: 1.02; margin-top: 10px; }
+.hero .sub { font-size: clamp(19px, 2.4vw, 26px); color: var(--text-2); font-weight: 500; letter-spacing: -0.015em; max-width: 680px; margin: 18px auto 0; line-height: 1.3; }
+.ctas { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 34px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 46px; padding: 0 24px; border-radius: 999px; font-size: 16px; font-weight: 500; transition: transform .15s, filter .2s; }
+.btn:active { transform: scale(0.97); }
+.btn.primary { background: var(--accent); color: #fff; }
+.btn.primary:hover { filter: brightness(1.1); }
+.btn.link { color: var(--accent); padding: 0 8px; }
+.btn.link:hover { text-decoration: underline; }
+.live-chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 30px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text-2); padding: 7px 13px; border-radius: 999px; border: 0.5px solid var(--line); background: color-mix(in srgb, var(--card) 70%, transparent); backdrop-filter: blur(12px); }
+.chip b { color: var(--text); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
+.dot.on { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot.warn { background: var(--orange); }
+.scroll-hint { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%); color: var(--text-3); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; z-index: 1; }
 
-  /* ---------------- nav ---------------- */
-  nav{
-    display:flex; justify-content:space-between; align-items:center;
-    padding:26px 42px; font-size:12px; letter-spacing:0.12em; text-transform:uppercase;
-  }
-  nav .wordmark{display:flex; align-items:center; gap:10px; color:var(--text-0);}
-  nav a{color:var(--text-1); text-decoration:none; border:1px solid var(--panel-border); padding:9px 18px; transition:.15s;}
-  nav a:hover{color:var(--cyan); border-color:var(--cyan-soft);}
+/* statement */
+.statement { padding: 140px 0 120px; }
+.statement p { font-size: clamp(30px, 5vw, 56px); font-weight: 700; letter-spacing: -0.035em; line-height: 1.1; max-width: 900px; }
+.statement p span { color: var(--text-3); transition: color .6s; }
+.statement p span.lit { color: var(--text); }
 
-  /* ---------------- hero ---------------- */
-  .hero{
-    min-height:82vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
-    text-align:center; padding:40px 24px 20px; position:relative;
-  }
-  .v1badge{
-    font-size:11px; letter-spacing:0.25em; color:var(--amber); border:1px solid rgba(255,176,32,0.4);
-    padding:6px 16px; margin-bottom:28px; text-transform:uppercase; background:rgba(255,176,32,0.06);
-  }
-  .wordmark-hero{
-    font-size:clamp(64px, 14vw, 168px); line-height:0.88; letter-spacing:-0.01em; text-transform:uppercase;
-    color:var(--text-0);
-    text-shadow:0 0 40px rgba(42,245,224,0.25);
-  }
-  .wordmark-hero .accent{color:var(--cyan); text-shadow:0 0 30px var(--cyan-soft), 0 0 70px rgba(42,245,224,0.35);}
-  .tagline{
-    font-family:'JetBrains Mono',monospace; font-size:15px; color:var(--text-1);
-    margin-top:22px; max-width:520px; line-height:1.7; letter-spacing:0.02em;
-  }
-  .tagline b{color:var(--text-0); font-weight:500;}
+/* section heads */
+section { scroll-margin-top: 60px; }
+.sec { padding: 110px 0; }
+.sec-head { max-width: 760px; margin-bottom: 52px; }
+.sec-head .kicker { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+.sec-head h2 { font-size: clamp(36px, 5.5vw, 64px); font-weight: 700; letter-spacing: -0.04em; line-height: 1.05; }
+.sec-head p { font-size: 19px; color: var(--text-2); margin-top: 16px; line-height: 1.45; letter-spacing: -0.01em; }
 
-  .glasses-wrap{margin:52px 0 44px; position:relative;}
-  .glasses-wrap svg{filter:drop-shadow(0 0 34px rgba(42,245,224,0.35));}
-  .ring{
-    position:absolute; border:1px solid rgba(42,245,224,0.25); border-radius:50%;
-    top:50%; left:50%; transform:translate(-50%,-50%);
-    animation:ringpulse 3.2s ease-out infinite;
-  }
-  .ring.r1{width:220px; height:220px;}
-  .ring.r2{width:220px; height:220px; animation-delay:1.05s;}
-  .ring.r3{width:220px; height:220px; animation-delay:2.1s;}
-  @keyframes ringpulse{
-    0%{width:200px; height:200px; opacity:0.5;}
-    100%{width:520px; height:520px; opacity:0;}
-  }
+/* bento */
+.bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; }
+.tile { background: var(--card); border: 0.5px solid var(--line); border-radius: 28px; padding: 32px; min-width: 0; overflow: hidden; position: relative; }
+.tile h3 { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; line-height: 1.12; }
+.tile p { color: var(--text-2); font-size: 16px; margin-top: 10px; line-height: 1.45; }
+.tile .big { font-size: clamp(54px, 7vw, 84px); font-weight: 700; letter-spacing: -0.05em; line-height: 1; margin-top: 18px; }
+.tile .big small { font-size: 0.32em; letter-spacing: -0.01em; color: var(--text-2); font-weight: 600; margin-left: 4px; }
+.span-4 { grid-column: span 4; } .span-3 { grid-column: span 3; } .span-2 { grid-column: span 2; } .span-6 { grid-column: span 6; }
+@media (max-width: 900px) { .span-4, .span-3, .span-2 { grid-column: span 6; } }
+.tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.tag { font-size: 13px; font-weight: 500; padding: 6px 12px; border-radius: 999px; background: var(--card-2); color: var(--text-2); border: 0.5px solid var(--line); }
+.tag.hot { color: var(--text); }
+.tag.hot::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--grad); margin-right: 7px; vertical-align: 1px; }
+.wave-viz { display: flex; align-items: center; gap: 4px; height: 70px; margin-top: 26px; }
+.wave-viz i { flex: 1; max-width: 6px; border-radius: 3px; background: var(--grad); background-size: 1200% 100%; animation: wv 1.4s ease-in-out infinite; }
+@keyframes wv { 0%, 100% { height: 18%; } 50% { height: 100%; } }
+.agents-orbit { margin-top: 24px; display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+.agent { padding: 14px; border-radius: 16px; background: var(--card-2); border: 0.5px solid var(--line); }
+.agent b { display: block; font-size: 15px; letter-spacing: -0.01em; }
+.agent span { display: block; font-size: 12.5px; color: var(--text-2); margin-top: 3px; line-height: 1.35; }
+.agent i { display: block; width: 26px; height: 26px; border-radius: 8px; margin-bottom: 10px; }
+.code { font-family: var(--mono); font-size: 13px; color: var(--text-2); background: var(--card-2); border: 0.5px solid var(--line); border-radius: 14px; padding: 16px 18px; margin-top: 22px; line-height: 1.6; overflow-x: auto; white-space: pre; }
+.code .k { color: #bf5af2; } .code .s { color: #64d2ff; } .code .c { color: var(--text-3); }
 
-  .cta-row{display:flex; gap:16px; flex-wrap:wrap; justify-content:center;}
-  .btn{
-    font-family:'Rajdhani',sans-serif; font-weight:600; letter-spacing:0.08em; text-transform:uppercase;
-    font-size:14px; cursor:pointer; padding:14px 30px; text-decoration:none; transition:.15s; display:inline-block;
-  }
-  .btn.primary{background:var(--cyan); color:var(--bg-0); border:1px solid var(--cyan);}
-  .btn.primary:hover{box-shadow:0 0 24px rgba(42,245,224,0.45);}
-  .btn.ghost{color:var(--text-0); border:1px solid var(--panel-border); background:transparent;}
-  .btn.ghost:hover{border-color:var(--cyan-soft); color:var(--cyan);}
+/* steps */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; counter-reset: s; }
+@media (max-width: 820px) { .steps { grid-template-columns: 1fr; } }
+.step { padding: 30px; border-radius: 28px; background: var(--card); border: 0.5px solid var(--line); }
+.step::before { counter-increment: s; content: counter(s); display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--text); color: var(--bg); font-weight: 700; font-size: 15px; }
+.step h3 { font-size: 22px; letter-spacing: -0.025em; margin-top: 18px; }
+.step p { color: var(--text-2); margin-top: 8px; font-size: 16px; }
 
-  /* ---------------- how it works ---------------- */
-  .section{max-width:1080px; margin:0 auto; padding:100px 32px;}
-  .section-label{font-size:11px; letter-spacing:0.2em; text-transform:uppercase; color:var(--text-2); margin-bottom:16px;}
-  .section-title{font-size:clamp(28px,4vw,44px); margin:0 0 56px; text-transform:uppercase; color:var(--text-0);}
+/* gestures */
+.gestures { border-radius: 28px; background: var(--card); border: 0.5px solid var(--line); overflow: hidden; }
+.g-row { display: grid; grid-template-columns: 220px 1fr; gap: 16px; padding: 18px 28px; align-items: center; }
+.g-row + .g-row { border-top: 0.5px solid var(--line); }
+.g-key { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.g-dots { display: inline-flex; gap: 3px; }
+.g-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--text); }
+.g-dots i.b2 { background: transparent; border: 1.5px solid var(--text); }
+.g-val { color: var(--text-2); font-size: 15px; }
+@media (max-width: 640px) { .g-row { grid-template-columns: 1fr; gap: 4px; padding: 16px 20px; } }
 
-  .steps{display:grid; grid-template-columns:repeat(3,1fr); gap:24px;}
-  @media (max-width:820px){ .steps{grid-template-columns:1fr;} }
-  .step{
-    background:linear-gradient(180deg,var(--bg-1),var(--bg-2)); border:1px solid var(--panel-border);
-    padding:28px 24px; position:relative; min-width:0;
-  }
-  .step .num{
-    font-family:'Rajdhani',sans-serif; font-weight:700; font-size:46px; color:var(--cyan); opacity:0.85; line-height:1;
-  }
-  .step h3{font-family:'Rajdhani',sans-serif; font-size:20px; text-transform:uppercase; margin:14px 0 8px; color:var(--text-0);}
-  .step p{font-size:13px; color:var(--text-1); line-height:1.6; margin:0;}
-  .step-arrow{display:flex; align-items:center; justify-content:center; color:var(--text-2); font-size:20px;}
-  @media (max-width:820px){ .step-arrow{transform:rotate(90deg); margin:-8px 0;} }
+/* specs */
+.specs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0 48px; }
+@media (max-width: 760px) { .specs { grid-template-columns: 1fr; } }
+.spec { padding: 20px 0; border-top: 0.5px solid var(--line); display: grid; grid-template-columns: 140px 1fr; gap: 16px; }
+.spec dt { color: var(--text-3); font-size: 14px; font-weight: 500; }
+.spec dd { font-size: 15px; line-height: 1.5; }
+.spec dd span { color: var(--text-2); }
 
-  /* ---------------- spec sheet ---------------- */
-  .specsheet{
-    background:var(--bg-1); border:1px solid var(--panel-border); padding:0; overflow:hidden;
-  }
-  .specrow{
-    display:grid; grid-template-columns:200px 1fr; border-bottom:1px solid var(--panel-border); font-size:13px;
-  }
-  .specrow:last-child{border-bottom:none;}
-  .specrow .k{padding:16px 20px; color:var(--text-2); text-transform:uppercase; letter-spacing:0.06em; font-size:11px; border-right:1px solid var(--panel-border);}
-  .specrow .v{padding:16px 20px; color:var(--text-0);}
-  .specrow .v .dim{color:var(--text-1);}
-  @media (max-width:600px){ .specrow{grid-template-columns:140px 1fr;} }
+/* final cta */
+.final { text-align: center; padding: 140px 0 120px; }
+.final h2 { font-size: clamp(40px, 7vw, 80px); font-weight: 700; letter-spacing: -0.045em; line-height: 1.02; }
+.final p { color: var(--text-2); font-size: 19px; margin-top: 14px; }
 
-  /* ---------------- footer ---------------- */
-  footer{
-    border-top:1px solid var(--panel-border); padding:32px 42px; display:flex; justify-content:space-between;
-    align-items:center; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--text-2); letter-spacing:0.06em; text-transform:uppercase;
-  }
-  footer .status{display:flex; align-items:center; gap:8px;}
-  .dot{width:7px; height:7px; border-radius:50%; background:var(--cyan); box-shadow:0 0 8px var(--cyan); animation:blink 1.8s infinite;}
-  @keyframes blink{0%,100%{opacity:1;} 50%{opacity:0.3;}}
+footer { border-top: 0.5px solid var(--line); padding: 26px 0 40px; font-size: 12px; color: var(--text-3); }
+footer .wrap { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+footer a:hover { color: var(--text); }
+.theme-btn { background: none; border: 0; color: var(--text-3); font: inherit; cursor: pointer; }
+.theme-btn:hover { color: var(--text); }
+
+/* reveal */
+.reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s cubic-bezier(.2,.8,.2,1), transform .9s cubic-bezier(.2,.8,.2,1); }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+  .wave-viz i { animation: none; height: 60%; }
+}
 </style>
 </head>
 <body>
 
-<div class="atmosphere"></div>
-<div class="gridfloor"></div>
-
-<main>
 <nav>
-  <div class="wordmark">
-    <svg width="26" height="17" viewBox="0 0 240 150" fill="none">
-      <path d="M22 68 C6 60, 4 42, 20 30" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
-      <path d="M218 68 C234 60, 236 42, 220 30" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
-      <path d="M108 72 H132" stroke="#2af5e0" stroke-width="10" stroke-linecap="round"/>
-      <rect x="18" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="10"/>
-      <rect x="130" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="10"/>
-    </svg>
-    WY GLASS
-  </div>
-  <div style="display:flex; gap:12px;">
-    <a href="/test">Diagnóstico</a>
-    <a href="/deck">Control Deck →</a>
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round"><path d="M22 68 C6 60, 4 42, 20 30"/><path d="M218 68 C234 60, 236 42, 220 30"/><path d="M108 72 H132"/><rect x="18" y="48" width="92" height="72" rx="20"/><rect x="130" y="48" width="92" height="72" rx="20"/></svg>
+      Wy Glass
+    </a>
+    <div class="links">
+      <a href="#live">Live</a>
+      <a href="#agentes">Agentes</a>
+      <a href="#cerebro">Cérebro</a>
+      <a href="#gestos">Gestos</a>
+      <a href="#ficha">Ficha técnica</a>
+      <a href="/deck">Control Deck</a>
+    </div>
+    <a class="nav-cta" href="/orb">Abrir Live</a>
   </div>
 </nav>
 
-<section class="hero">
-  <div class="v1badge">Build v1 · Hardware Hackeado</div>
-  <div class="wordmark-hero display">WY<br><span class="accent">GLASS</span></div>
-  <p class="tagline">Óculos genéricos reprogramados por engenharia reversa de BLE.<br>
-  Um clique no botão físico e o <b>Gemini</b> escuta, pensa e responde — falando direto no seu ouvido.</p>
-
-  <div class="glasses-wrap">
-    <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
-    <svg width="260" height="160" viewBox="0 0 240 150" fill="none">
-      <path d="M22 68 C6 60, 4 42, 20 30" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
-      <path d="M218 68 C234 60, 236 42, 220 30" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
-      <path d="M108 72 H132" stroke="#2af5e0" stroke-width="6" stroke-linecap="round"/>
-      <rect x="18" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="6"/>
-      <rect x="130" y="48" width="92" height="72" rx="20" stroke="#2af5e0" stroke-width="6"/>
-      <circle cx="42" cy="80" r="7" stroke="#2af5e0" stroke-width="4"/>
-      <circle cx="42" cy="80" r="2.5" fill="#2af5e0"/>
-      <path d="M56 80 H74" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
-      <path d="M148 76 H176" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
-      <path d="M148 88 H168" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
-      <path d="M148 100 H158" stroke="#2af5e0" stroke-width="4" stroke-linecap="round"/>
-      <path d="M196 68 H206 V96 H188" stroke="#2af5e0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="206" cy="68" r="4" stroke="#2af5e0" stroke-width="3"/>
-    </svg>
+<header class="hero">
+  <canvas id="heroOrb" aria-hidden="true"></canvas>
+  <div class="eyebrow grad-text">Wy Glass Live</div>
+  <h1>Seu Jarvis.<br>No rosto.</h1>
+  <p class="sub">Óculos genéricos reprogramados por engenharia reversa. Agora com voz em tempo real, agentes e o seu segundo cérebro.</p>
+  <div class="ctas">
+    <a class="btn primary" href="/orb">Abrir Live</a>
+    <a class="btn link" href="#live">Saiba mais ›</a>
   </div>
+  <div class="live-chips" id="chips">
+    <span class="chip"><span class="dot" id="bleDot"></span><b>Óculos</b><span id="bleText">verificando…</span></span>
+  </div>
+  <div class="scroll-hint">Role</div>
+</header>
 
-  <div class="cta-row">
-    <a class="btn primary" href="/deck">Abrir Control Deck</a>
-    <a class="btn ghost" href="/test">Painel de Diagnóstico</a>
+<section class="statement">
+  <div class="wrap">
+    <p id="statement"><span>Um par de óculos de prateleira.</span> <span>Um protocolo Bluetooth fechado.</span> <span>Engenharia reversa byte a byte.</span> <span>E um assistente que escuta, pensa, age</span> <span>e responde direto no seu ouvido.</span></p>
   </div>
 </section>
 
-<section class="section">
-  <div class="section-label">// Fluxo</div>
-  <div class="section-title">Como funciona</div>
-  <div class="steps">
-    <div class="step">
-      <div class="num">01</div>
-      <h3>Aperte o botão</h3>
-      <p>Um clique simples no botão frontal dos óculos dispara o gatilho — capturado direto via BLE, sem depender do app do fabricante.</p>
+<section class="sec" id="live">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Voz em tempo real</div>
+      <h2>Converse. Não dite comandos.</h2>
+      <p>O áudio do microfone dos óculos vai em fluxo contínuo pro Gemini Live e a resposta volta falada enquanto ainda está sendo gerada. Interrompa no meio da frase, mude de assunto, pense alto.</p>
     </div>
-    <div class="step">
-      <div class="num">02</div>
-      <h3>Fale sua pergunta</h3>
-      <p>O microfone grava alguns segundos de áudio, que é enviado direto pro Gemini — sem transcrição intermediária.</p>
-    </div>
-    <div class="step">
-      <div class="num">03</div>
-      <h3>Wy Glass responde</h3>
-      <p>A resposta é sintetizada em voz natural (Google TTS) e tocada no alto-falante Bluetooth dos óculos.</p>
+    <div class="bento">
+      <div class="tile span-4 reveal">
+        <h3>Fala pra fala, sem etapas no meio.</h3>
+        <p>Nada de gravar, transcrever, pensar e sintetizar em sequência. É speech-to-speech nativo, full-duplex, com transcrição ao vivo na tela.</p>
+        <div class="wave-viz" id="wave"></div>
+      </div>
+      <div class="tile span-2 reveal">
+        <h3>Primeira palavra em</h3>
+        <div class="big">~1<small>s</small></div>
+        <p>Do fim da sua fala ao início da resposta, medido com os óculos.</p>
+      </div>
+      <div class="tile span-2 reveal">
+        <h3>Interrompa quando quiser.</h3>
+        <p>Barge-in de verdade, com gate anti-eco calibrado pra um alto-falante open-ear colado no microfone.</p>
+      </div>
+      <div class="tile span-2 reveal">
+        <h3>Sessões que não caem.</h3>
+        <p>Retomada automática e janela de contexto deslizante: a conversa continua quando o servidor renova a conexão.</p>
+      </div>
+      <div class="tile span-2 reveal">
+        <h3>Te conhece.</h3>
+        <p>Perfil, stack e preferências entram em todo turno. Tom de parceiro técnico, ou “modo mordomo” se pedir.</p>
+      </div>
     </div>
   </div>
 </section>
 
-<section class="section">
-  <div class="section-label">// Especificações</div>
-  <div class="section-title">Ficha técnica</div>
-  <div class="specsheet">
-    <div class="specrow"><div class="k">Hardware</div><div class="v">Microwear W AI 4 <span class="dim">· firmware LNJ-W03</span></div></div>
-    <div class="specrow"><div class="k">Conexão</div><div class="v">BLE (controle + gatilho) + Bluetooth clássico A2DP/HFP (áudio)</div></div>
-    <div class="specrow"><div class="k">Gatilho</div><div class="v">Botão frontal · clique simples · protocolo proprietário decodificado por engenharia reversa</div></div>
-    <div class="specrow"><div class="k">Cérebro</div><div class="v">Google Gemini <span class="dim">(entende áudio nativamente, sem STT separado)</span></div></div>
-    <div class="specrow"><div class="k">Voz</div><div class="v">Google Cloud Text-to-Speech <span class="dim">· pt-BR</span></div></div>
-    <div class="specrow"><div class="k">Stack</div><div class="v">Python · FastAPI · Bleak (BLE) · WebSocket</div></div>
+<section class="sec" id="agentes">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Agentes</div>
+      <h2>A voz conversa. Os agentes trabalham.</h2>
+      <p>Pedidos de vários passos são delegados a agentes especializados que rodam em segundo plano e devolvem o resultado pra voz contar.</p>
+    </div>
+    <div class="bento">
+      <div class="tile span-6 reveal">
+        <h3>Cinco especialistas, um orbe.</h3>
+        <p>Cada agente aparece como satélite no orbe e acende quando está trabalhando.</p>
+        <div class="agents-orbit">
+          <div class="agent"><i style="background:linear-gradient(135deg,#64d2ff,#0a84ff)"></i><b>Pesquisador</b><span>Web, notícias, cotações e dados ao vivo</span></div>
+          <div class="agent"><i style="background:linear-gradient(135deg,#30d158,#64d2ff)"></i><b>Operador</b><span>Abre projetos e sites, olha e captura a tela</span></div>
+          <div class="agent"><i style="background:linear-gradient(135deg,#ff9f0a,#ff375f)"></i><b>Generalista</b><span>Tarefas que misturam pesquisa e ação</span></div>
+          <div class="agent"><i style="background:linear-gradient(135deg,#bf5af2,#5e5ce6)"></i><b>Cérebro</b><span>Segundo cérebro e Planner Life via MCP</span></div>
+          <div class="agent"><i style="background:linear-gradient(135deg,#d4a27f,#c15f3c)"></i><b>Claude</b><span>Claude Code headless na sua assinatura</span></div>
+        </div>
+      </div>
+      <div class="tile span-3 reveal">
+        <h3>Claude Code, pela voz.</h3>
+        <p>O agente Claude chama o CLI oficial em modo headless com o login da sua assinatura. Sem API key, sem proxy, com ferramentas liberadas por você.</p>
+        <div class="code"><span class="c"># o que roda quando você diz</span>
+<span class="c"># “pede pro Claude analisar o projeto”</span>
+<span class="k">claude</span> -p <span class="s">"…"</span> --output-format json \
+  --allowedTools Read Grep Glob WebSearch</div>
+      </div>
+      <div class="tile span-3 reveal">
+        <h3>Qualquer modelo, via 9router.</h3>
+        <p>Os agentes de texto passam por um gateway OpenAI-compatible local, com fallback automático entre provedores. Sem gateway, vão direto na Groq.</p>
+        <div class="tag-row"><span class="tag hot">9router</span><span class="tag">OmniRoute</span><span class="tag">Groq</span><span class="tag">Gemini</span><span class="tag">OpenRouter</span></div>
+      </div>
+    </div>
   </div>
 </section>
-</main>
+
+<section class="sec" id="cerebro">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Segundo cérebro</div>
+      <h2>Ele lembra do que importa pra você.</h2>
+      <p>Servidores MCP ligam o Jarvis às suas metas, trilhas de estudo, conteúdo analisado e à vida organizada no Planner. Pergunte “o que tem de novo pra mim?” e ele consulta antes de responder.</p>
+    </div>
+    <div class="bento">
+      <div class="tile span-3 reveal">
+        <h3>current-brain</h3>
+        <p>Contexto, metas, trilhas, conteúdo, repos em alta e criadores que você segue.</p>
+        <div class="big" id="brainTools">13<small>tools por voz</small></div>
+      </div>
+      <div class="tile span-3 reveal">
+        <h3>planner-life</h3>
+        <p>Coleções, registros e automações da sua vida, por voz.</p>
+        <div class="big" id="plannerTools">5<small>tools por voz</small></div>
+      </div>
+      <div class="tile span-6 reveal">
+        <h3>Poucas tools na voz. Todas nos agentes.</h3>
+        <p>O modelo de voz recebe só o que faz sentido falando, então responde mais rápido e erra menos. O trabalho pesado vai pro agente Cérebro. Ações destrutivas nunca ficam expostas por voz.</p>
+        <div class="tag-row" id="mcpTags"><span class="tag hot">get_context</span><span class="tag hot">search</span><span class="tag hot">list_goals</span><span class="tag hot">add_link</span><span class="tag">list_trending_repos</span><span class="tag">list_records</span><span class="tag">save_record</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Como funciona</div>
+      <h2>Dois toques e uma frase.</h2>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><h3>Toque duas vezes</h3><p>Clique duplo no botão da frente. O sinal chega por BLE, decodificado do protocolo proprietário, sem o app do fabricante.</p></div>
+      <div class="step reveal"><h3>Fale normalmente</h3><p>O microfone dos óculos abre um canal contínuo. Sem palavra mágica, sem esperar o bipe. Ou diga “Hey Jarvis”.</p></div>
+      <div class="step reveal"><h3>Ele age e responde</h3><p>Busca, abre, consulta seu cérebro, delega a um agente e fala o resultado no alto-falante dos óculos.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="gestos">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Gestos</div>
+      <h2>Dois botões. Seis gestos.</h2>
+      <p>Cada combinação dispara qualquer ação: Live, Jarvis clássico, tradutor, comandos do PC. Reconfigure no painel do orbe.</p>
+    </div>
+    <div class="gestures reveal" id="gestures"></div>
+  </div>
+</section>
+
+<section class="sec" id="ficha">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="kicker grad-text">Ficha técnica</div>
+      <h2>Por dentro.</h2>
+    </div>
+    <dl class="specs reveal">
+      <div class="spec"><dt>Hardware</dt><dd>Microwear W AI 4 <span>· firmware LNJ-W03</span></dd></div>
+      <div class="spec"><dt>Conexão</dt><dd>BLE para controle <span>+ Bluetooth clássico A2DP/HFP para áudio</span></dd></div>
+      <div class="spec"><dt>Voz Live</dt><dd>Gemini Live <span id="specModel">gemini-3.8-live</span> <span>· speech-to-speech</span></dd></div>
+      <div class="spec"><dt>Voz offline</dt><dd>Piper TTS <span>· pt-BR e en-US, local</span></dd></div>
+      <div class="spec"><dt>Ativação</dt><dd>Botão físico <span>ou wake word “Hey Jarvis” local (openWakeWord)</span></dd></div>
+      <div class="spec"><dt>Privacidade</dt><dd>Reconhecimento de locutor local <span>· perfil de voz nunca sai da máquina</span></dd></div>
+      <div class="spec"><dt>Agentes</dt><dd>Groq · 9router · OmniRoute <span>· Claude Code headless</span></dd></div>
+      <div class="spec"><dt>Ferramentas</dt><dd>Skills em Python <span>+ servidores MCP (current-brain, planner-life)</span></dd></div>
+      <div class="spec"><dt>Servidor</dt><dd>Python · FastAPI · Bleak · WebSocket</dd></div>
+      <div class="spec"><dt>Plataformas</dt><dd>Windows <span>· Linux e Raspberry Pi · app Android</span></dd></div>
+    </dl>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap reveal">
+    <h2>Coloque os óculos.<br><span class="grad-text">Fale.</span></h2>
+    <p>Clique duplo no botão da frente, ou abra o Live aqui.</p>
+    <div class="ctas"><a class="btn primary" href="/orb">Abrir Live</a><a class="btn link" href="/deck">Control Deck ›</a></div>
+  </div>
+</section>
 
 <footer>
-  <div>Wy Glass v1 · projeto pessoal de hardware hacking</div>
-  <div class="status"><div class="dot"></div> sistema ativo</div>
+  <div class="wrap">
+    <span>Wy Glass <span id="ver"></span> · projeto pessoal de hardware hacking</span>
+    <span><a href="/orb">Live</a> · <a href="/deck">Control Deck</a> · <a href="/test">Diagnóstico</a> · <button class="theme-btn" id="themeBtn">Tema</button></span>
+  </div>
 </footer>
 
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  try { const t = localStorage.getItem("wy-theme"); if (t) root.dataset.theme = t; } catch {}
+  const isLight = () => (root.dataset.theme ? root.dataset.theme === "light" : matchMedia("(prefers-color-scheme: light)").matches);
+  $("themeBtn").onclick = () => {
+    root.dataset.theme = isLight() ? "dark" : "light";
+    try { localStorage.setItem("wy-theme", root.dataset.theme); } catch {}
+  };
+
+  /* hero orb: mesma linguagem do /orb, sem áudio */
+  const cv = $("heroOrb"), ctx = cv.getContext("2d");
+  let W, H;
+  const resize = () => { const d = Math.min(devicePixelRatio || 1, 2); W = cv.clientWidth; H = cv.clientHeight; cv.width = W * d; cv.height = H * d; ctx.setTransform(d, 0, 0, d, 0, 0); };
+  addEventListener("resize", resize); resize();
+  const PAL = [[94, 92, 230], [41, 151, 255], [191, 90, 242], [255, 55, 95]];
+  const RINGS = [{ r: 1.6, tx: 1.2, tz: -0.3, s: 0.12 }, { r: 2.1, tx: 1.32, tz: 0.36, s: -0.08 }, { r: 2.7, tx: 1.08, tz: 0.06, s: 0.05 }];
+  function proj(ring, a, cx, cy, R) {
+    let x = Math.cos(a) * ring.r, y = Math.sin(a) * ring.r, z = 0;
+    [y, z] = [y * Math.cos(ring.tx), y * Math.sin(ring.tx)];
+    [x, y] = [x * Math.cos(ring.tz) - y * Math.sin(ring.tz), x * Math.sin(ring.tz) + y * Math.cos(ring.tz)];
+    const p = 4.2 / (4.2 + z);
+    return { x: cx + x * R * p, y: cy + y * R * p, z, p };
+  }
+  let visible = true;
+  new IntersectionObserver(([e]) => (visible = e.isIntersecting)).observe(cv);
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (!visible) return;
+    const t = reduce ? 0 : now / 1000, light = isLight();
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H * 0.5, R = Math.min(W, H) * (W < 700 ? 0.2 : 0.17);
+    const rings = (front) => {
+      RINGS.forEach((ring) => {
+        ctx.beginPath(); let on = false;
+        for (let a = 0; a <= 6.3; a += 0.04) {
+          const p = proj(ring, a, cx, cy, R);
+          if ((p.z < 0) === front) { on = false; continue; }
+          on ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); on = true;
+        }
+        ctx.strokeStyle = light ? `rgba(0,0,0,${front ? 0.10 : 0.05})` : `rgba(255,255,255,${front ? 0.13 : 0.06})`;
+        ctx.lineWidth = 1; ctx.stroke();
+        for (let k = 0; k < 3; k++) {
+          const p = proj(ring, k * 2.1 + t * ring.s, cx, cy, R);
+          if ((p.z < 0) === front) continue;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 2.6 * p.p, 0, 7);
+          ctx.fillStyle = light ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.55)"; ctx.fill();
+        }
+      });
+    };
+    rings(false);
+    const halo = ctx.createRadialGradient(cx, cy, R * 0.3, cx, cy, R * 2.6);
+    halo.addColorStop(0, light ? "rgba(94,92,230,0.16)" : "rgba(94,92,230,0.30)"); halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+    ctx.save();
+    const r = R * (1 + Math.sin(t * 1.2) * 0.02);
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.clip();
+    ctx.fillStyle = light ? "#e3e4f2" : "#0b0d1c"; ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.globalCompositeOperation = light ? "multiply" : "lighter";
+    PAL.forEach((c, i) => {
+      const a = t * (0.4 + i * 0.13) + i * 1.7;
+      const bx = cx + Math.cos(a) * r * 0.45, by = cy + Math.sin(a * 1.3 + i) * r * 0.45, br = r * (1 + 0.2 * Math.sin(t * 0.8 + i));
+      const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, `rgba(${c},${light ? 0.5 : 0.8})`); g.addColorStop(0.55, `rgba(${c},${light ? 0.15 : 0.28})`); g.addColorStop(1, `rgba(${c},0)`);
+      ctx.fillStyle = g; ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    });
+    ctx.globalCompositeOperation = "source-over";
+    const sp = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.45, 0, cx - r * 0.35, cy - r * 0.45, r * 0.9);
+    sp.addColorStop(0, "rgba(255,255,255,0.3)"); sp.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = sp; ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    ctx.restore();
+    rings(true);
+    // escurece o centro pra o texto do hero ler bem por cima do orbe
+    const veil = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.6);
+    const bg = light ? "251,251,253" : "0,0,0";
+    veil.addColorStop(0, `rgba(${bg},0.55)`); veil.addColorStop(0.6, `rgba(${bg},0.25)`); veil.addColorStop(1, `rgba(${bg},0)`);
+    ctx.fillStyle = veil; ctx.fillRect(0, 0, W, H);
+  }
+  requestAnimationFrame(frame);
+
+  /* onda decorativa */
+  const wave = $("wave");
+  for (let i = 0; i < 48; i++) {
+    const b = document.createElement("i");
+    b.style.animationDelay = `${-(i * 0.09) % 1.4}s`;
+    b.style.backgroundPosition = `${(i / 47) * 100}% 0`;
+    wave.appendChild(b);
+  }
+
+  /* reveal + frase que acende conforme rola */
+  const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.15 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+  const spans = [...document.querySelectorAll("#statement span")];
+  const lightStatement = () => {
+    const vh = innerHeight;
+    spans.forEach((s) => s.classList.toggle("lit", reduce || s.getBoundingClientRect().top < vh * 0.62));
+  };
+  addEventListener("scroll", lightStatement, { passive: true }); lightStatement();
+
+  /* gestos (da config real, com fallback) */
+  const GNAMES = {
+    button1_single: ["Botão 1", 1, "clique"], button1_double: ["Botão 1", 2, "duplo"], button1_triple: ["Botão 1", 3, "triplo"],
+    button2_single: ["Botão 2", 1, "clique"], button2_double: ["Botão 2", 2, "duplo"], button2_triple: ["Botão 2", 3, "triplo"],
+    wake_word_command: ["“Hey Jarvis”", 0, "voz"],
+  };
+  const ACT = {
+    live_agent: "Liga e desliga o modo Live", open_jarvis_agent: "Jarvis clássico, um turno", translator_agent: "Tradutor PT↔EN bidirecional",
+    stop_conversation: "Encerra a conversa", open_dashboard: "Abre o dashboard", run_command: "Executa um comando", open_url: "Abre uma URL",
+    key_shortcut: "Atalho de teclado", screenshot: "Captura a tela", voice_command: "Grava áudio", jarvis_voice_agent: "Jarvis multi-provedor",
+  };
+  function renderGestures(g) {
+    const rows = Object.keys(GNAMES).filter((k) => g[k]).map((k) => {
+      const [btn, n, kind] = GNAMES[k];
+      const dots = n ? `<span class="g-dots">${Array.from({ length: n }, () => `<i class="${btn.endsWith("2") ? "b2" : ""}"></i>`).join("")}</span>` : "";
+      const action = g[k].action;
+      const desc = ACT[action] || action;
+      return `<div class="g-row"><div class="g-key">${dots}${btn} · ${kind}</div><div class="g-val">${desc}</div></div>`;
+    });
+    $("gestures").innerHTML = rows.join("");
+  }
+  renderGestures({ button1_single: { action: "open_jarvis_agent" }, button1_double: { action: "live_agent" }, button1_triple: { action: "translator_agent" },
+    button2_single: { action: "stop_conversation" }, button2_double: { action: "open_dashboard" }, wake_word_command: { action: "open_jarvis_agent" } });
+
+  /* status ao vivo */
+  const chip = (html) => { const s = document.createElement("span"); s.className = "chip"; s.innerHTML = html; $("chips").appendChild(s); };
+  (async () => {
+    try {
+      const [st, live, cfg, mcp] = await Promise.all([
+        fetch("/api/status").then((r) => r.json()),
+        fetch("/api/live").then((r) => r.json()).catch(() => null),
+        fetch("/api/config").then((r) => r.json()).catch(() => null),
+        fetch("/api/mcp").then((r) => r.json()).catch(() => null),
+      ]);
+      $("bleDot").className = "dot " + (st.connected ? "on" : "warn");
+      $("bleText").textContent = st.connected ? "conectados" : "desconectados";
+      if (st.battery_percent != null) chip(`<b>${st.battery_percent}%</b> bateria`);
+      if (st.app_version) $("ver").textContent = "v" + st.app_version;
+      if (live) {
+        chip(`<b>${live.model}</b> · ${live.voice}`);
+        chip(`<b>${live.agents.length}</b> agentes`);
+        $("specModel").textContent = live.model;
+      }
+      if (mcp?.servers?.length) {
+        const on = mcp.servers.filter((s) => s.connected);
+        if (on.length) chip(`<b>${on.length}</b> MCP conectados`);
+        const brain = mcp.servers.find((s) => s.name === "current-brain");
+        const planner = mcp.servers.find((s) => s.name === "planner-life");
+        if (brain?.tools?.length) $("brainTools").innerHTML = `${brain.tools.length}<small>de ${brain.all_tools.length} tools por voz</small>`;
+        if (planner?.tools?.length) $("plannerTools").innerHTML = `${planner.tools.length}<small>de ${planner.all_tools.length} tools por voz</small>`;
+        const tags = on.flatMap((s) => s.tools.slice(0, 6));
+        if (tags.length) $("mcpTags").innerHTML = tags.map((t, i) => `<span class="tag ${i < 4 ? "hot" : ""}">${t}</span>`).join("");
+      }
+      if (cfg?.gestures) renderGestures(cfg.gestures);
+    } catch {
+      $("bleText").textContent = "servidor offline";
+    }
+  })();
+})();
+</script>
 </body>
 </html>

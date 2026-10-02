@@ -6,12 +6,17 @@ servers. Called synchronously from actions.py (off the event loop, via
 run_in_executor), speaks each chunk directly through jarvis.speak() — no
 browser, no separate TTS delivery path.
 
-Fase 1 of the agents/MCP/skills roadmap: uses Groq's native OpenAI-compatible
-function calling (the `tools` param) instead of parsing ad-hoc [ACTION:...]
-text tags out of the reply — the model picks a real tool by name/schema, no
-regex, no "please don't forget to write the tag right" prompt engineering.
-This is the foundation the next phases (pluggable skills registry, MCP client,
-multi-agent routing) build on top of.
+Uses Groq's native OpenAI-compatible function calling (the `tools` param)
+instead of parsing ad-hoc [ACTION:...] text tags out of the reply — the model
+picks a real tool by name/schema, no regex, no "please don't forget to write
+the tag right" prompt engineering.
+
+Harness: ferramentas nao ficam mais fixas neste arquivo — vem do skills_registry
+(skills/*.py, descoberta automatica) e de qualquer servidor MCP conectado (ver
+mcp_client.py e config.json > mcp_servers). `allowed_skills` em process_turn()
+restringe quais delas um turno especifico pode usar — a base do roteamento
+multi-agente (perfis diferentes = listas de skills diferentes, configuraveis por
+gesto em config.json).
 """
 
 import base64
@@ -22,14 +27,9 @@ from datetime import datetime
 
 import requests
 
-# browser_tools (playwright) e PIL sao importados so dentro das funcoes que realmente os usam
-# (describe_screen, execute_tool) -- sao ferramentas que o modelo pode ou nao escolher chamar
-# num turno qualquer, entao nao faz sentido exigir playwright/Pillow instalados so pra ter uma
-# conversa basica. intent_classifier (scikit-learn) fica de fora dessa lista de proposito: e
-# chamado incondicionalmente em todo turno por process_turn(), entao e uma dependencia de
-# verdade do agente, nao vale a pena tornar preguicoso.
 import intent_classifier
 import jarvis
+import skills_registry
 
 GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 # llama-3.3-70b-versatile leaks Llama's native <function=name{args}></function>
@@ -39,6 +39,15 @@ GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 # the same lineage as the format itself.
 GROQ_TEXT_MODEL = "openai/gpt-oss-20b"
 GROQ_VISION_MODEL = "qwen/qwen3.6-27b"  # Groq's free-tier vision model (llama-4-scout was retired)
+
+# OmniRoute (https://github.com/diegosouzapw/OmniRoute) — gateway local, OpenAI-compatible, que
+# agrega ~268 provedores com failover/roteamento automatico prontos (nao reimplementamos isso
+# aqui). Quando config.json > omni_route.enabled=true, ask_groq() manda a chamada pra ele em vez
+# de direto na Groq -- resolve na raiz os problemas ja vistos de rate limit e modelo aposentado
+# sem virar nossa responsabilidade escolher o proximo provedor. Desligado por padrao (precisa
+# rodar `omniroute` localmente e configurar provedores no dashboard primeiro).
+OMNI_ROUTE_DEFAULT_URL = "http://localhost:20128/v1/chat/completions"
+OMNI_ROUTE_DEFAULT_MODEL = "auto"
 
 conversations: dict[str, list] = {}
 # Setado pela tool end_conversation, checado por server.py::conversation_loop apos cada turno —
@@ -54,7 +63,8 @@ end_requested: dict[str, bool] = {}
 personas: dict[str, str] = {}
 
 PERSONAS = {
-    "padrao": "Seu tom e seco, sarcastico e educado — como um mordomo que ja viu de tudo e continua leal mesmo assim. Voce faz comentarios sutis e secos, mas nunca desrespeitosos.",
+    "padrao": "Seu tom e de parceiro tecnico: fala de igual pra igual, direto e tecnico, sem rodeio e sem bajulacao. Quando cabe, solta um humor seco curto — nunca as custas da resposta. Se discordar ou enxergar um risco, fala na lata e sugere o caminho melhor.",
+    "mordomo": "Seu tom e seco, sarcastico e educado — como um mordomo que ja viu de tudo e continua leal mesmo assim. Voce faz comentarios sutis e secos, mas nunca desrespeitosos.",
     "serio": "Seu tom e direto e profissional, sem humor e sem comentarios pessoais — vai reto ao ponto, como um assistente tecnico formal.",
     "brincalhao": "Seu tom e leve e descontraido — voce solta piadas curtas e trocadilhos quando cabe, sem exagerar, e nunca perde o foco em ajudar de verdade.",
     "professor": "Seu tom e didatico e paciente — voce explica o raciocinio por tras da resposta em vez de so entregar o resultado, mas continua breve.",
@@ -100,140 +110,6 @@ def _is_self_echo(user_text: str, last_assistant_text: str) -> bool:
     overlap = len(u_words & a_words) / len(u_words)
     return overlap >= 0.7
 
-# --------------------------------------------------------------- tools -----
-# Fase 2 (roteiro) troca isto por um registro plugavel (skills descobertas por
-# modulo, cada uma trazendo seu proprio schema); por ora e uma lista fixa.
-
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search",
-            "description": (
-                "Pesquisa na internet. Cobre busca geral E dados ao vivo especificos: "
-                "clima/tempo/temperatura, cambio/cotacao de moeda (dolar, euro, etc), "
-                "preco de criptomoeda (bitcoin, etc), proximos feriados. Use sempre que "
-                "o usuario pedir pra pesquisar/buscar algo, ou perguntar um desses dados "
-                "ao vivo (nao precisa da palavra 'pesquisa' pra isso — 'quanto ta o dolar' "
-                "ja e um pedido de search)."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"query": {"type": "string", "description": "o que pesquisar"}},
-                "required": ["query"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "open_url",
-            "description": "Abre uma URL/site especifico no navegador padrao do usuario.",
-            "parameters": {
-                "type": "object",
-                "properties": {"url": {"type": "string", "description": "URL completa a abrir"}},
-                "required": ["url"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "see_screen",
-            "description": (
-                "Tira um print da tela do usuario e DESCREVE em voz o que esta sendo visto (nao "
-                "salva arquivo nenhum). Use quando o usuario pedir pra ver/olhar/visualizar a "
-                "tela dele, ou perguntar o que tem na tela — nao quando ele pedir pra 'tirar um "
-                "print'/'salvar um print' (isso e take_screenshot)."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "take_screenshot",
-            "description": (
-                "Tira um print da tela e SALVA como arquivo, sem descrever o conteudo em voz. "
-                "Use quando o usuario pedir explicitamente pra tirar/salvar/capturar um print ou "
-                "screenshot da tela — nao quando ele pedir pra ver/descrever a tela (isso e "
-                "see_screen)."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_news",
-            "description": "Busca noticias atuais do mundo. Use se o usuario pedir noticias/o que esta acontecendo.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "open_dashboard",
-            "description": "Abre o painel de controle/configuracoes dos oculos (Dashboard).",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "set_persona",
-            "description": (
-                "Troca a personalidade/tom do assistente para o resto da conversa. Use SOMENTE "
-                "quando o usuario pedir explicitamente pra mudar de personalidade/modo/jeito de "
-                "falar (ex: 'vira o modo serio', 'fica mais brincalhao', 'modo professor', 'volta "
-                "ao normal'). NUNCA use por conta propria em resposta a uma pergunta comum."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "persona": {
-                        "type": "string",
-                        "enum": list(PERSONAS.keys()),
-                        "description": (
-                            "padrao = sarcastico/seco (default); serio = direto e formal; "
-                            "brincalhao = leve, com piadas; professor = didatico, explica o raciocinio"
-                        ),
-                    },
-                },
-                "required": ["persona"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "start_translator",
-            "description": (
-                "Ativa o modo tradutor: grava a proxima fala em qualquer idioma e fala a "
-                "traducao em voz alta (portugues<->ingles — a direcao e detectada sozinha, nao "
-                "precisa perguntar qual). Use quando o usuario pedir pra traduzir algo, iniciar "
-                "traducao, ou ativar o modo tradutor/interprete."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "end_conversation",
-            "description": (
-                "Encerra a conversa continua atual (modo conversa por clique duplo). Use "
-                "SOMENTE quando o usuario se despedir claramente (tchau, ate mais, falou, pode "
-                "desligar, e so isso mesmo, obrigado/valeu como despedida final) ou pedir "
-                "explicitamente pra parar/encerrar a conversa. NUNCA use em resposta a uma "
-                "pergunta ou pedido normal."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
-]
-
-
 def _now_str() -> str:
     """Real wall-clock time from this machine — the LLM has no clock of its
     own, so this must be injected into the prompt on every turn, not guessed."""
@@ -256,24 +132,37 @@ def greeting_text(user_name: str) -> str:
 
 
 def ask_groq(api_key: str, system_prompt: str, messages: list, tools: list | None = None,
-             max_tokens: int = 400) -> dict:
+             max_tokens: int = 400, omni_route: dict | None = None) -> dict:
     """Returns the full assistant message dict (content + possibly tool_calls),
-    not just a content string — the caller needs to inspect tool_calls."""
+    not just a content string — the caller needs to inspect tool_calls.
+
+    Se omni_route (config.json > omni_route) estiver presente e habilitado, a chamada vai pro
+    gateway local do OmniRoute em vez de direto na Groq -- ele escolhe o provedor/modelo de
+    verdade (por padrao "auto"), com failover proprio se algum provedor falhar/estourar quota.
+    Nesse caso api_key e ignorado a favor da chave do dashboard do OmniRoute."""
+    use_omni = bool(omni_route and omni_route.get("enabled"))
+    if use_omni:
+        base_url = omni_route.get("base_url") or OMNI_ROUTE_DEFAULT_URL
+        model = omni_route.get("model") or OMNI_ROUTE_DEFAULT_MODEL
+        key = omni_route.get("api_key", "")
+    else:
+        base_url = GROQ_CHAT_URL
+        model = GROQ_TEXT_MODEL
+        key = api_key
+
     payload = {
-        "model": GROQ_TEXT_MODEL, "max_tokens": max_tokens, "temperature": 0.7,
-        # gpt-oss models emit a chain-of-thought "reasoning" field before the
-        # real answer/tool_call — "low" cuts that generation short (tested:
-        # same tool-picking reliability, noticeably less latency) vs the
-        # unset/"medium" default.
-        "reasoning_effort": "low",
+        "model": model, "max_tokens": max_tokens, "temperature": 0.7,
         "messages": [{"role": "system", "content": system_prompt}, *messages],
     }
+    if not use_omni:
+        # reasoning_effort e um parametro especifico do gpt-oss da Groq -- nao faz sentido
+        # mandar isso pro OmniRoute, que pode rotear pra qualquer provedor/modelo sem esse campo
+        payload["reasoning_effort"] = "low"
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
-    resp = requests.post(
-        GROQ_CHAT_URL, headers={"Authorization": f"Bearer {api_key}"}, json=payload, timeout=30,
-    )
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    resp = requests.post(base_url, headers=headers, json=payload, timeout=30)
     resp.raise_for_status()
     return resp.json()["choices"][0]["message"]
 
@@ -318,14 +207,15 @@ def describe_screen(groq_api_key: str) -> str:
     return text
 
 
-def build_system_prompt(user_name: str, user_role: str, persona: str = "padrao") -> str:
+def build_system_prompt(user_name: str, user_role: str, persona: str = "padrao", user_context: str = "") -> str:
     now = _now_str()
     tom = PERSONAS.get(persona, PERSONAS["padrao"])
-    return f"""Voce e Jarvis, o assistente de IA de Tony Stark no Homem de Ferro. Quem voce atende e {user_name}, {user_role}. Voce fala exclusivamente portugues do Brasil. Trate {user_name} pelo nome, de forma direta, sem formalidade excessiva. {tom} Voce e extremamente inteligente, eficiente e sempre um passo a frente. Mantenha as respostas curtas — no maximo 3 frases.
+    contexto = f"\n\nQUEM E {user_name.upper()}: {user_context}" if user_context else ""
+    return f"""Voce e Jarvis, o assistente de IA que vive nos oculos inteligentes Wy Glass — oculos que o proprio usuario reprogramou por engenharia reversa. Quem voce atende e {user_name}: {user_role}. Voce fala exclusivamente portugues do Brasil. Chame-o de {user_name}, de forma direta, sem formalidade excessiva. {tom} Voce e extremamente inteligente, eficiente e sempre um passo a frente. Mantenha as respostas curtas — no maximo 3 frases. Nao cumprimente (bom dia/boa tarde) no meio da conversa — va direto ao ponto.{contexto}
 
 DATA E HORA ATUAIS (do relogio real da maquina, use isso pra saudacoes e qualquer pergunta sobre horario/data — voce nao tem relogio proprio, essa e a unica fonte confiavel): {now}
 
-IMPORTANTE: NUNCA escreva indicacoes de cena, emocoes ou tags entre colchetes como [sarcastic] [formal] [amused] [dry] ou similares. Seu sarcasmo deve vir PURAMENTE da escolha das palavras. Tudo que voce escrever sera lido em voz alta.
+IMPORTANTE: NUNCA escreva indicacoes de cena, emocoes ou tags entre colchetes como [sarcastic] [formal] [amused] [dry] ou similares. Seu tom deve vir PURAMENTE da escolha das palavras. Tudo que voce escrever sera lido em voz alta.
 
 Voce tem ferramentas disponiveis (busca, abrir pagina, ver tela, tirar print, noticias, abrir dashboard, trocar personalidade, iniciar tradutor, encerrar conversa) — use SOMENTE quando fizer sentido pro pedido daquele turno especifico. NA GRANDE MAIORIA das respostas voce NAO vai chamar nenhuma ferramenta — so responda normalmente. Uma mensagem vaga tipo "e ai", "entao", "beleza", "ok" NUNCA repete a ferramenta do turno anterior por conta propria — trate como conversa normal, cada turno e avaliado sozinho.
 
@@ -335,58 +225,25 @@ QUANDO {user_name} disser "Jarvis activate" (E SOMENTE nesse caso especifico):
 - NAO chame nenhuma ferramenta nessa saudacao, nem mesmo ver a tela."""
 
 
-def execute_tool(name: str, args: dict, groq_api_key: str, tavily_api_key: str = "",
-                  session_id: str = "") -> tuple[str, bool]:
-    """Returns (result_text, skip_summary). skip_summary=True means result_text
-    is already a short, ready-to-speak answer — no need for a second Groq
-    round-trip just to rephrase it (saves a full API call + reasoning latency
-    on the most common quick-fact queries: weather/currency/crypto/holidays,
-    plus screen descriptions, which Groq vision already returns in natural
-    language)."""
-    if name == "search":
-        import browser_tools
-        result = browser_tools.search_and_read(args.get("query", ""), tavily_api_key=tavily_api_key)
-        if "error" not in result:
-            if result.get("live_data"):
-                return result.get("content", ""), True
-            return f"Pagina: {result.get('title', '')}\nURL: {result.get('url', '')}\n\n{result.get('content', '')[:2000]}", False
-        return f"Busca falhou: {result.get('error', '')}", False
-    elif name == "open_url":
-        import browser_tools
-        url = args.get("url", "")
-        browser_tools.open_url(url)
-        return f"Aberto: {url}", True
-    elif name == "see_screen":
-        return describe_screen(groq_api_key), True
-    elif name == "take_screenshot":
-        import actions
-        actions.screenshot({})
-        return "Print salvo.", True
-    elif name == "get_news":
-        import browser_tools
-        return browser_tools.fetch_news(), False
-    elif name == "open_dashboard":
-        import dashboard_launcher
-        return dashboard_launcher.open_dashboard(), True
-    elif name == "set_persona":
-        persona = args.get("persona", "padrao")
-        if persona not in PERSONAS:
-            persona = "padrao"
-        personas[session_id] = persona
-        return f"Persona trocada para '{persona}'.", True
-    elif name == "start_translator":
-        import actions
-        # translator_agent ja fala a traducao sozinho (na voz do idioma certo) antes de
-        # retornar — process_turn nao deve falar de novo em cima disso (ver "already_spoken"
-        # especial pra essa ferramenta logo abaixo, em process_turn).
-        return actions.translator_agent({"groq_api_key": groq_api_key}), True
-    elif name == "end_conversation":
-        return "Até mais!", True
-    return f"ferramenta desconhecida: {name}", False
+def _build_ctx(session_id: str, groq_api_key: str, tavily_api_key: str, omni_route: dict | None) -> dict:
+    """Contexto passado pra toda skill executada neste turno. Skills sao modulos isolados em
+    skills/ que nao importam smart_agent de volta (evita ciclo de import) — qualquer estado
+    interno que uma skill precise (personas, chaves de API, a funcao describe_screen) chega
+    por aqui em vez de acesso direto."""
+    return {
+        "session_id": session_id,
+        "groq_api_key": groq_api_key,
+        "tavily_api_key": tavily_api_key,
+        "omni_route": omni_route,
+        "personas": personas,
+        "describe_screen": describe_screen,
+    }
 
 
 def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: str, user_role: str,
-                  tts_model: str = "pt_BR-faber-medium.onnx", tavily_api_key: str = "") -> str:
+                  tts_model: str = "pt_BR-faber-medium.onnx", tavily_api_key: str = "",
+                  omni_route: dict | None = None, allowed_skills: list[str] | None = None,
+                  user_context: str = "") -> str:
     """One turn: LLM reply -> (if it called tools) execute them and ask again
     for a natural-language summary -> speak the final text. Speaks directly
     through jarvis.speak() — no browser involved."""
@@ -413,7 +270,8 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
         if fn_name == "end_conversation":
             end_requested[session_id] = True
         try:
-            result, _ = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key, session_id)
+            ctx = _build_ctx(session_id, groq_api_key, tavily_api_key, omni_route)
+            result, _ = skills_registry.execute_tool(fn_name, fn_args, ctx)
         except Exception as e:
             result = f"Erro: {e}"
         reply = (result or "Pronto.").strip()
@@ -427,9 +285,10 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
 
     conversations[session_id].append({"role": "user", "content": user_text})
     history = conversations[session_id][-16:]
-    system_prompt = build_system_prompt(user_name, user_role, personas.get(session_id, "padrao"))
+    system_prompt = build_system_prompt(user_name, user_role, personas.get(session_id, "padrao"), user_context)
 
-    message = ask_groq(groq_api_key, system_prompt, history, tools=TOOLS)
+    tools = skills_registry.get_all_tools(allowed=allowed_skills)
+    message = ask_groq(groq_api_key, system_prompt, history, tools=tools, omni_route=omni_route)
     print(f"[smart_agent] user: {user_text!r}", flush=True)
     print(f"[smart_agent] assistant message: {message!r}", flush=True)
 
@@ -459,7 +318,8 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
             end_requested[session_id] = True
 
         try:
-            result, skip_summary = execute_tool(fn_name, fn_args, groq_api_key, tavily_api_key, session_id)
+            ctx = _build_ctx(session_id, groq_api_key, tavily_api_key, omni_route)
+            result, skip_summary = skills_registry.execute_tool(fn_name, fn_args, ctx)
         except Exception as e:
             result, skip_summary = f"Erro: {e}", False
         print(f"[smart_agent] tool result ({fn_name}): {result[:300]!r}", flush=True)
@@ -493,12 +353,52 @@ def process_turn(session_id: str, user_text: str, groq_api_key: str, user_name: 
 
     summary_system = (
         "Voce e Jarvis. Voce acabou de executar uma ou mais ferramentas — os resultados estao no historico "
-        "da conversa como mensagens 'tool'. Resuma o resultado de forma CURTA (no maximo 3 frases), no seu "
-        "estilo (seco, sarcastico, educado), em portugues do Brasil. NAO chame nenhuma ferramenta de novo, "
+        "da conversa como mensagens 'tool'. Resuma o resultado de forma CURTA (no maximo 3 frases), no tom "
+        "de parceiro tecnico (direto, de igual pra igual), em portugues do Brasil. NAO chame nenhuma ferramenta de novo, "
         "so responda com texto."
     )
-    final_message = ask_groq(groq_api_key, summary_system, working_messages, max_tokens=250)
+    final_message = ask_groq(groq_api_key, summary_system, working_messages, max_tokens=250, omni_route=omni_route)
     summary = (final_message.get("content") or "").strip() or f"Pronto, {user_name}."
     conversations[session_id].append({"role": "assistant", "content": summary})
     jarvis.speak(summary, tts_model)
     return summary
+
+
+def run_agent_task(task: str, agent_label: str, agent_description: str, groq_api_key: str,
+                    tavily_api_key: str = "", gateway: dict | None = None,
+                    allowed_skills: list[str] | None = None, session_id: str = "wyglass",
+                    max_steps: int = 5) -> str:
+    """Agente de texto autonomo, chamado pelo modo LIVE (live_agent.delegate_task). Diferente de
+    process_turn(): nao fala nada (quem fala e o Gemini Live), nao mexe no historico da conversa
+    de voz, e pode encadear varias rodadas de ferramenta ate chegar numa resposta. Roda pelo
+    gateway configurado (9router/OmniRoute) ou direto na Groq."""
+    system_prompt = (
+        f"Voce e o agente {agent_label} do Wy Glass: {agent_description}. Execute a tarefa usando as "
+        f"ferramentas quantas vezes precisar. Data/hora atual: {_now_str()}. Ao terminar, responda "
+        "em portugues do Brasil com o resultado final em no maximo 5 frases, pronto pra ser lido em "
+        "voz alta por outro assistente (sem markdown, sem listas, sem URLs cruas)."
+    )
+    tools = [t for t in skills_registry.get_all_tools(allowed=allowed_skills)
+             if t["function"]["name"] not in ("end_conversation", "set_persona", "start_translator")]
+    messages: list = [{"role": "user", "content": task}]
+    ctx = _build_ctx(session_id, groq_api_key, tavily_api_key, gateway)
+    for _ in range(max_steps):
+        message = ask_groq(groq_api_key, system_prompt, messages, tools=tools, max_tokens=700, omni_route=gateway)
+        tool_calls = message.get("tool_calls")
+        if not tool_calls:
+            return (message.get("content") or "").strip() or "Tarefa concluida, sem nada a relatar."
+        messages.append(message)
+        for tc in tool_calls:
+            try:
+                fn_args = json.loads(tc["function"].get("arguments") or "{}")
+            except json.JSONDecodeError:
+                fn_args = {}
+            try:
+                result, _ = skills_registry.execute_tool(tc["function"]["name"], fn_args, ctx)
+            except Exception as e:
+                result = f"Erro: {e}"
+            print(f"[smart_agent] agente {agent_label} -> {tc['function']['name']}: {str(result)[:200]!r}", flush=True)
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": str(result)[:4000]})
+    final = ask_groq(groq_api_key, system_prompt + " Nao chame mais ferramentas: responda agora com o que ja tem.",
+                     messages, max_tokens=500, omni_route=gateway)
+    return (final.get("content") or "").strip() or "Nao consegui concluir a tarefa no limite de passos."

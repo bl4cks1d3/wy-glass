@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wy Glass</title>
+<link rel="icon" href="/static/icon.png">
+<link rel="stylesheet" href="/static/orb-panel.css">
+<style>
+:root {
+  --bg: #050507;
+  --bg-glow: #0d1020;
+  --glass: rgba(255,255,255,0.06);
+  --glass-strong: rgba(255,255,255,0.10);
+  --glass-border: rgba(255,255,255,0.12);
+  --text: #f5f5f7;
+  --text-2: rgba(235,235,245,0.62);
+  --text-3: rgba(235,235,245,0.34);
+  --accent: #0a84ff;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --violet: #bf5af2;
+  --radius: 22px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f2f2f7; --bg-glow: #e4e8f7;
+    --glass: rgba(255,255,255,0.55); --glass-strong: rgba(255,255,255,0.75);
+    --glass-border: rgba(0,0,0,0.08);
+    --text: #1d1d1f; --text-2: rgba(60,60,67,0.68); --text-3: rgba(60,60,67,0.38);
+  }
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: radial-gradient(120% 90% at 50% 38%, var(--bg-glow) 0%, var(--bg) 62%);
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+
+.glass {
+  background: var(--glass);
+  border: 0.5px solid var(--glass-border);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+}
+
+/* top bar */
+.top {
+  position: fixed; top: max(16px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; align-items: center; z-index: 5;
+  padding: 6px; border-radius: 999px; max-width: calc(100vw - 32px);
+}
+.pill {
+  display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 14px;
+  border-radius: 999px; font-size: 13px; font-weight: 500; letter-spacing: -0.01em;
+  color: var(--text-2); white-space: nowrap;
+}
+.pill b { color: var(--text); font-weight: 600; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); transition: background .4s, box-shadow .4s; }
+.dot.on { background: var(--green); box-shadow: 0 0 10px var(--green); }
+.dot.warn { background: var(--orange); box-shadow: 0 0 10px var(--orange); }
+.batt { display: inline-flex; align-items: center; gap: 5px; }
+.batt-shell { width: 22px; height: 11px; border: 1.2px solid var(--text-2); border-radius: 3.5px; padding: 1px; position: relative; }
+.batt-shell::after { content: ""; position: absolute; right: -3.5px; top: 3px; width: 1.6px; height: 4px; background: var(--text-2); border-radius: 0 1px 1px 0; }
+.batt-fill { height: 100%; border-radius: 1.5px; background: var(--text); width: 0%; transition: width .6s; }
+.batt-fill.low { background: var(--red); }
+
+/* status headline */
+.headline {
+  position: fixed; left: 0; right: 0; top: 13vh; text-align: center; z-index: 3; pointer-events: none;
+}
+.headline .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-3); }
+.headline .state { margin-top: 8px; font-size: clamp(26px, 4vw, 40px); font-weight: 600; letter-spacing: -0.03em; transition: opacity .35s; }
+
+/* captions */
+.captions {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: 150px; z-index: 3;
+  width: min(760px, calc(100vw - 32px)); text-align: center; pointer-events: none;
+}
+.cap-user { font-size: 15px; color: var(--text-2); min-height: 22px; transition: opacity .5s; }
+.cap-ai {
+  margin-top: 10px; font-size: clamp(19px, 2.4vw, 25px); font-weight: 500; letter-spacing: -0.02em;
+  line-height: 1.32; min-height: 34px; transition: opacity .5s;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.fade { opacity: 0; }
+
+/* dock */
+.dock {
+  position: fixed; bottom: max(28px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 999px; z-index: 5;
+}
+.btn-icon {
+  width: 48px; height: 48px; border-radius: 50%; border: 0; display: grid; place-items: center;
+  background: transparent; color: var(--text-2); cursor: pointer; transition: background .2s, color .2s, transform .15s;
+}
+.btn-icon:hover { background: var(--glass-strong); color: var(--text); }
+.btn-icon:active { transform: scale(0.94); }
+.btn-icon svg { width: 21px; height: 21px; }
+.btn-live {
+  height: 48px; padding: 0 26px; border-radius: 999px; border: 0; cursor: pointer;
+  font: 600 15px/1 var(--font); letter-spacing: -0.01em; color: #fff;
+  background: linear-gradient(135deg, #0a84ff, #5e5ce6);
+  box-shadow: 0 8px 30px rgba(10,132,255,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+  display: flex; align-items: center; gap: 10px; transition: transform .15s, box-shadow .3s, background .3s;
+}
+.btn-live:active { transform: scale(0.97); }
+.btn-live.active { background: linear-gradient(135deg, #ff453a, #ff375f); box-shadow: 0 8px 30px rgba(255,69,58,0.35), inset 0 1px 0 rgba(255,255,255,0.25); }
+.btn-live .wave { display: flex; gap: 2.5px; align-items: center; height: 16px; }
+.btn-live .wave i { width: 3px; border-radius: 2px; background: #fff; height: 30%; transition: height .08s; }
+
+/* activity sheet */
+.sheet {
+  position: fixed; top: 76px; right: 16px; bottom: 110px; width: 340px; border-radius: var(--radius);
+  padding: 18px; z-index: 6; display: flex; flex-direction: column; gap: 12px;
+  transform: translateX(calc(100% + 24px)); transition: transform .45s cubic-bezier(.2,.8,.2,1);
+}
+.sheet.open { transform: none; }
+.sheet h3 { font-size: 17px; font-weight: 600; letter-spacing: -0.02em; }
+.sheet .sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.feed { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; scrollbar-width: none; }
+.feed::-webkit-scrollbar { display: none; }
+.item { padding: 11px 13px; border-radius: 14px; background: var(--glass); font-size: 13px; line-height: 1.4; animation: rise .4s cubic-bezier(.2,.8,.2,1); }
+.item .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-3); margin-bottom: 3px; font-weight: 500; }
+.item .name { color: var(--text); font-weight: 600; }
+.item .body { color: var(--text-2); word-break: break-word; }
+.item.tool .name::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--violet); margin-right: 7px; vertical-align: middle; }
+.item.err .name::before { background: var(--red); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 11.5px; font-weight: 500; padding: 5px 10px; border-radius: 999px; background: var(--glass); color: var(--text-2); }
+.chip b { color: var(--text); font-weight: 600; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.toast {
+  position: fixed; top: 80px; left: 50%; transform: translate(-50%, -12px); opacity: 0;
+  padding: 10px 16px; border-radius: 14px; font-size: 13px; z-index: 9; transition: all .35s; pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+@media (max-width: 640px) {
+  .top .pill.hide-sm { display: none; }
+  .sheet { left: 16px; right: 16px; width: auto; top: auto; bottom: 100px; height: 52vh; transform: translateY(calc(100% + 120px)); }
+  .sheet.open { transform: none; }
+  .captions { bottom: 120px; }
+  .headline { top: 11vh; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<canvas id="orb"></canvas>
+
+<div class="top glass">
+  <div class="pill"><span class="dot" id="bleDot"></span><b>Wy Glass</b><span id="bleText">procurando…</span></div>
+  <div class="pill batt" id="battPill" hidden><span class="batt-shell"><span class="batt-fill" id="battFill"></span></span><span id="battText">–</span></div>
+  <div class="pill hide-sm" id="modelPill">gemini live</div>
+  <div class="pill hide-sm" id="gwPill" title="Gateway dos agentes">agentes · groq</div>
+</div>
+
+<div class="headline">
+  <div class="eyebrow" id="eyebrow">Modo Live</div>
+  <div class="state" id="stateText">Pronto</div>
+</div>
+
+<div class="captions">
+  <div class="cap-user" id="capUser"></div>
+  <div class="cap-ai" id="capAi"></div>
+</div>
+
+<div class="dock glass">
+  <button class="btn-icon" id="themeBtn" title="Tema" aria-label="Alternar tema">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
+  </button>
+  <button class="btn-live" id="liveBtn"><span class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i></span><span id="liveLabel">Iniciar Live</span></button>
+  <button class="btn-icon" id="panelBtn" title="Ajustes" aria-label="Abrir painel de ajustes">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+  </button>
+  <button class="btn-icon" id="sheetBtn" title="Atividade" aria-label="Atividade dos agentes">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M4 12h10M4 17h13"/></svg>
+  </button>
+</div>
+
+<aside class="sheet glass" id="sheet">
+  <div>
+    <h3>Agentes</h3>
+    <div class="sub">Voz no Gemini Live · tarefas nos agentes via gateway</div>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="feed" id="feed"></div>
+</aside>
+
+<div class="toast glass" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+  try { const t = localStorage.getItem("wy-theme"); if (t) root.dataset.theme = t; } catch {}
+  $("themeBtn").onclick = () => {
+    const isDark = root.dataset.theme ? root.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+    root.dataset.theme = isDark ? "light" : "dark";
+    try { localStorage.setItem("wy-theme", root.dataset.theme); } catch {}
+  };
+
+  /* ---------- state ---------- */
+  const S = {
+    status: "idle", running: false,
+    inLevel: 0, outLevel: 0, inSmooth: 0, outSmooth: 0,
+    satellites: [], activeTool: null, activeUntil: 0,
+  };
+  const STATE_LABEL = {
+    idle: ["Modo Live", "Pronto"], connecting: ["Conectando", "Abrindo canal…"],
+    listening: ["Ouvindo", "Pode falar"], speaking: ["Jarvis", "Falando"],
+    working: ["Agentes", "Trabalhando…"], error: ["Erro", "Algo deu errado"],
+  };
+  // paleta do orbe por estado: [r,g,b] x4 blobs
+  const PALETTES = {
+    idle:       [[94,92,230],[64,156,255],[175,110,240],[90,200,250]],
+    connecting: [[90,150,255],[120,110,255],[80,200,255],[150,120,255]],
+    listening:  [[10,132,255],[48,209,255],[94,92,230],[100,210,255]],
+    working:    [[191,90,242],[94,92,230],[255,55,95],[120,100,255]],
+    speaking:   [[255,55,95],[255,159,10],[191,90,242],[255,100,140]],
+    error:      [[255,69,58],[255,120,90],[200,60,80],[255,90,60]],
+  };
+  let palette = PALETTES.idle.map(c => c.slice());
+
+  function setStatus(status, detail) {
+    S.status = PALETTES[status] ? status : "idle";
+    S.running = !["idle", "error"].includes(S.status);
+    const [eb, txt] = STATE_LABEL[S.status];
+    $("eyebrow").textContent = eb;
+    $("stateText").textContent = S.status === "working" && detail ? toolLabel(detail) : (S.status === "error" && detail ? detail : txt);
+    $("liveBtn").classList.toggle("active", S.running);
+    $("liveLabel").textContent = S.running ? "Encerrar" : "Iniciar Live";
+  }
+
+  /* ---------- orbital satellites ---------- */
+  const TOOL_LABELS = {
+    search: "Pesquisando", get_news: "Notícias", open_url: "Abrindo página", see_screen: "Olhando a tela",
+    take_screenshot: "Capturando tela", open_project: "Abrindo projeto", open_dashboard: "Painel",
+    set_persona: "Trocando persona", end_conversation: "Encerrando", delegate_task: "Delegando",
+    pc_apps: "Apps", pc_window: "Janelas", pc_keyboard: "Teclado", pc_media: "Mídia",
+    pc_click: "Mouse", pc_system: "Sistema",
+  };
+  const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
+  function buildSatellites(agents, skills) {
+    const sats = [];
+    agents.forEach((a, i) => sats.push({ id: "agent:" + a.id, label: a.label, ring: 1, phase: i / agents.length, size: 5.5, glow: 0 }));
+    skills.slice(0, 10).forEach((s, i, arr) => sats.push({ id: s, label: toolLabel(s), ring: i % 2 === 0 ? 0 : 2, phase: i / arr.length + 0.07, size: 3, glow: 0 }));
+    S.satellites = sats;
+    $("chips").innerHTML = agents.map(a => `<span class="chip"><b>${a.label}</b></span>`).join("") +
+      skills.slice(0, 12).map(s => `<span class="chip">${toolLabel(s)}</span>`).join("");
+  }
+  function pulseSatellite(id) {
+    const s = S.satellites.find(x => x.id === id);
+    if (s) s.glow = 1;
+  }
+
+  /* ---------- rendering ---------- */
+  const cv = $("orb"), ctx = cv.getContext("2d");
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * DPR; cv.height = H * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  addEventListener("resize", resize); resize();
+
+  const RINGS = [
+    { r: 1.55, tiltX: 1.18, tiltZ: -0.32, speed: 0.10 },
+    { r: 1.95, tiltX: 1.30, tiltZ: 0.38, speed: -0.07 },
+    { r: 2.40, tiltX: 1.05, tiltZ: 0.05, speed: 0.045 },
+  ];
+  function project(ring, ang, cx, cy, R) {
+    // ponto no circulo do anel -> rotacao em X (inclinacao) -> rotacao em Z -> perspectiva
+    let x = Math.cos(ang) * ring.r, y = Math.sin(ang) * ring.r, z = 0;
+    const cX = Math.cos(ring.tiltX), sX = Math.sin(ring.tiltX);
+    [y, z] = [y * cX - z * sX, y * sX + z * cX];
+    const cZ = Math.cos(ring.tiltZ), sZ = Math.sin(ring.tiltZ);
+    [x, y] = [x * cZ - y * sZ, x * sZ + y * cZ];
+    const persp = 4.2 / (4.2 + z);
+    return { x: cx + x * R * persp, y: cy + y * R * persp, z, s: persp };
+  }
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const isLight = () => (root.dataset.theme ? root.dataset.theme === "light" : matchMedia("(prefers-color-scheme: light)").matches);
+
+  let t0 = performance.now();
+  function frame(now) {
+    const t = (now - t0) / 1000;
+    S.inSmooth = lerp(S.inSmooth, S.inLevel, 0.25);
+    S.outSmooth = lerp(S.outSmooth, S.outLevel, 0.25);
+    S.inLevel *= 0.92; S.outLevel *= 0.92;
+    const energy = S.status === "listening" ? S.inSmooth : S.status === "speaking" ? S.outSmooth : 0;
+    const target = PALETTES[S.status];
+    for (let i = 0; i < 4; i++) for (let k = 0; k < 3; k++) palette[i][k] = lerp(palette[i][k], target[i][k], 0.04);
+
+    ctx.clearRect(0, 0, W, H);
+    const cx = W / 2, cy = H * 0.47;
+    const R = Math.min(W, H) * (W < 640 ? 0.17 : 0.13);
+    const light = isLight();
+
+    // anéis (metade de trás primeiro, orbe, depois metade da frente — dá profundidade real)
+    const drawRings = (front) => {
+      RINGS.forEach((ring, ri) => {
+        ctx.beginPath();
+        let started = false;
+        for (let a = 0; a <= Math.PI * 2 + 0.01; a += 0.04) {
+          const p = project(ring, a, cx, cy, R);
+          if ((p.z < 0) === front) { started = false; continue; }
+          started ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y);
+          started = true;
+        }
+        const alpha = (S.running ? 0.22 : 0.12) * (front ? 1 : 0.55);
+        ctx.strokeStyle = light ? `rgba(40,40,60,${alpha})` : `rgba(255,255,255,${alpha})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      });
+      S.satellites.forEach((sat) => {
+        const ring = RINGS[sat.ring];
+        const ang = sat.phase * Math.PI * 2 + t * ring.speed * (S.running ? 2.2 : 1);
+        const p = project(ring, ang, cx, cy, R);
+        if ((p.z < 0) === front) return;
+        sat.glow = Math.max(0, sat.glow - 0.006);
+        const g = sat.glow;
+        const size = sat.size * p.s * (1 + g * 0.8);
+        const c = palette[sat.ring % 4];
+        if (g > 0.02) {
+          const halo = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, size * 7);
+          halo.addColorStop(0, `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${0.55 * g})`);
+          halo.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = halo;
+          ctx.beginPath(); ctx.arc(p.x, p.y, size * 7, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.beginPath(); ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+        const base = light ? 40 : 255;
+        ctx.fillStyle = g > 0.02 ? `rgb(${c[0]|0},${c[1]|0},${c[2]|0})` : `rgba(${base},${base},${base},${0.35 + 0.35 * p.s - 0.2})`;
+        ctx.fill();
+        if (sat.id.startsWith("agent:") || g > 0.3) {
+          ctx.font = `${g > 0.3 ? 600 : 500} 11.5px ${getComputedStyle(root).getPropertyValue("--font")}`;
+          ctx.textAlign = "center";
+          ctx.fillStyle = light ? `rgba(29,29,31,${0.45 + g * 0.55})` : `rgba(245,245,247,${0.40 + g * 0.6})`;
+          ctx.fillText(sat.label, p.x, p.y - size - 8);
+        }
+      });
+    };
+    drawRings(false);
+
+    // halo externo
+    const haloR = R * (1.9 + energy * 0.6);
+    const halo = ctx.createRadialGradient(cx, cy, R * 0.4, cx, cy, haloR);
+    const hc = palette[0];
+    halo.addColorStop(0, `rgba(${hc[0]|0},${hc[1]|0},${hc[2]|0},${light ? 0.18 : 0.28})`);
+    halo.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(cx, cy, haloR, 0, Math.PI * 2); ctx.fill();
+
+    // orbe: esfera recortada com blobs aditivos que nadam lá dentro
+    ctx.save();
+    const breathe = 1 + Math.sin(t * (S.running ? 2.1 : 1.1)) * 0.018 + energy * 0.16;
+    const orbR = R * breathe;
+    ctx.beginPath(); ctx.arc(cx, cy, orbR, 0, Math.PI * 2); ctx.clip();
+    ctx.fillStyle = light ? "#dfe3f0" : "#0b0d1c";
+    ctx.fillRect(cx - orbR, cy - orbR, orbR * 2, orbR * 2);
+    ctx.globalCompositeOperation = light ? "multiply" : "lighter";
+    const speed = S.status === "working" ? 1.7 : S.running ? 1.0 : 0.45;
+    for (let i = 0; i < 4; i++) {
+      const a = t * speed * (0.55 + i * 0.17) + i * 1.7;
+      const wob = 0.42 + energy * 0.35;
+      const bx = cx + Math.cos(a) * orbR * wob * (i % 2 ? 0.8 : 1);
+      const by = cy + Math.sin(a * 1.3 + i) * orbR * wob;
+      const br = orbR * (0.95 + 0.25 * Math.sin(t * 0.9 + i) + energy * 0.4);
+      const c = palette[i];
+      const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+      g.addColorStop(0, `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${(light ? 0.55 : 0.85) * (S.running ? 1 : 0.7)})`);
+      g.addColorStop(0.55, `rgba(${c[0]|0},${c[1]|0},${c[2]|0},${light ? 0.18 : 0.3})`);
+      g.addColorStop(1, `rgba(${c[0]|0},${c[1]|0},${c[2]|0},0)`);
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - orbR, cy - orbR, orbR * 2, orbR * 2);
+    }
+    ctx.globalCompositeOperation = "source-over";
+    // brilho especular + borda de vidro
+    const spec = ctx.createRadialGradient(cx - orbR * 0.35, cy - orbR * 0.45, 0, cx - orbR * 0.35, cy - orbR * 0.45, orbR * 0.9);
+    spec.addColorStop(0, "rgba(255,255,255,0.32)");
+    spec.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = spec; ctx.fillRect(cx - orbR, cy - orbR, orbR * 2, orbR * 2);
+    const rim = ctx.createRadialGradient(cx, cy, orbR * 0.82, cx, cy, orbR);
+    rim.addColorStop(0, "rgba(255,255,255,0)");
+    rim.addColorStop(1, "rgba(255,255,255,0.22)");
+    ctx.fillStyle = rim; ctx.fillRect(cx - orbR, cy - orbR, orbR * 2, orbR * 2);
+    ctx.restore();
+
+    drawRings(true);
+
+    // ondas no botão
+    const bars = $("wave").children;
+    for (let i = 0; i < bars.length; i++) {
+      const v = S.running ? 0.25 + Math.abs(Math.sin(t * 6 + i * 1.1)) * (0.2 + energy * 1.6) : 0.3;
+      bars[i].style.height = Math.min(100, v * 100) + "%";
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  /* ---------- captions + feed ---------- */
+  let capTimer = null;
+  function caption(role, text, final) {
+    const el = role === "user" ? $("capUser") : $("capAi");
+    el.textContent = text;
+    el.classList.remove("fade");
+    if (role === "user" && !final) $("capAi").classList.add("fade");
+    clearTimeout(capTimer);
+    capTimer = setTimeout(() => { $("capUser").classList.add("fade"); $("capAi").classList.add("fade"); }, 9000);
+    if (final) addFeed(role === "user" ? "Você" : "Jarvis", text);
+  }
+  function addFeed(name, body, cls = "") {
+    const d = document.createElement("div");
+    d.className = "item " + cls;
+    const time = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    d.innerHTML = `<div class="meta"><span class="name"></span><span>${time}</span></div><div class="body"></div>`;
+    d.querySelector(".name").textContent = name;
+    d.querySelector(".body").textContent = body;
+    $("feed").prepend(d);
+    while ($("feed").children.length > 80) $("feed").lastChild.remove();
+  }
+  function toast(msg) {
+    const el = $("toast"); el.textContent = msg; el.classList.add("show");
+    clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove("show"), 3200);
+  }
+
+  /* ---------- server ---------- */
+  function setBle(connected, msg) {
+    $("bleDot").className = "dot " + (connected ? "on" : "warn");
+    $("bleText").textContent = connected ? "conectado" : (msg || "procurando…");
+  }
+  function setBattery(p, low) {
+    if (p == null) return;
+    $("battPill").hidden = false;
+    $("battFill").style.width = p + "%";
+    $("battFill").classList.toggle("low", !!low);
+    $("battText").textContent = p + "%";
+  }
+
+  function handle(m) {
+    switch (m.type) {
+      case "status": setBle(m.connected, m.message); break;
+      case "battery": setBattery(m.percent, m.low); break;
+      case "live_state":
+        setStatus(m.status, m.detail);
+        if (m.status === "error" && m.detail) { toast(m.detail); addFeed("Erro", m.detail, "err"); }
+        break;
+      case "live_level": S.inLevel = Math.max(S.inLevel, m.in); S.outLevel = Math.max(S.outLevel, m.out); break;
+      case "live_transcript": caption(m.role, m.text, m.final); break;
+      case "live_interrupted": $("capAi").classList.add("fade"); break;
+      case "live_session": $("modelPill").textContent = `${m.model} · ${m.voice}`; break;
+      case "live_tool":
+        if (m.phase === "start") {
+          pulseSatellite(m.name);
+          if (m.name === "delegate_task" && m.args?.agent) pulseSatellite("agent:" + m.args.agent);
+          addFeed(toolLabel(m.name), m.args?.task || m.args?.query || JSON.stringify(m.args || {}), "tool");
+        } else {
+          addFeed(toolLabel(m.name) + (m.ok ? " · ok" : " · falhou"), m.result || "", m.ok ? "tool" : "tool err");
+        }
+        break;
+      case "gesture": if (m.label) toast(m.label); break;
+    }
+  }
+
+  function connectWs() {
+    const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+    ws.onmessage = (e) => { try { handle(JSON.parse(e.data)); } catch {} };
+    ws.onclose = () => { setBle(false, "servidor offline"); setTimeout(connectWs, 1500); };
+  }
+  connectWs();
+
+  async function refresh() {
+    try {
+      const [st, live, skills] = await Promise.all([
+        fetch("/api/status").then(r => r.json()),
+        fetch("/api/live").then(r => r.json()),
+        fetch("/api/skills").then(r => r.json()).catch(() => ({ skills: [] })),
+      ]);
+      setBle(st.connected);
+      setBattery(st.battery_percent, st.battery_percent != null && st.battery_percent <= st.battery_low_threshold);
+      setStatus(live.status);
+      $("modelPill").textContent = `${live.model} · ${live.voice}`;
+      $("gwPill").textContent = `agentes · ${live.gateway.provider}`;
+      buildSatellites(live.agents, skills.skills.filter(s => s.enabled && s.name !== "start_translator").map(s => s.name));
+      if (live.gateway.provider !== "groq") {
+        fetch("/api/gateway/health").then(r => r.json()).then(h => {
+          $("gwPill").innerHTML = `<span class="dot ${h.ok ? "on" : "warn"}"></span>agentes · ${h.provider}`;
+          if (!h.ok) toast(`${h.provider} offline — rode "9router" no terminal`);
+        });
+      }
+    } catch { setBle(false, "servidor offline"); }
+  }
+  refresh();
+
+  async function toggleLive() {
+    const url = S.running ? "/api/live/stop" : "/api/live/start";
+    if (!S.running) setStatus("connecting");
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => null);
+    if (r && !r.ok) { const j = await r.json().catch(() => ({})); toast(j.error || "falha"); setStatus("idle"); }
+  }
+  window.__wy = { handle }; // debug: simular eventos do servidor pelo console
+  $("liveBtn").onclick = toggleLive;
+  $("sheetBtn").onclick = () => $("sheet").classList.toggle("open");
+  $("panelBtn").onclick = () => window.wyPanel && window.wyPanel.open();
+  addEventListener("wy:config", refresh);
+  addEventListener("keydown", (e) => {
+    if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); toggleLive(); }
+    if (e.key === "," && (e.metaKey || e.ctrlKey)) { e.preventDefault(); window.wyPanel && window.wyPanel.open(); }
+    if (e.key === "Escape") $("sheet").classList.remove("open");
+  });
+})();
+</script>
+<script src="/static/orb-panel.js"></script>
+</body>
+</html>

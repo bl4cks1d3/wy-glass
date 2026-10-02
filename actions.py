@@ -78,10 +78,17 @@ def open_jarvis_agent(params: dict):
     if not groq_api_key:
         raise ValueError("groq_api_key nao configurado pro open_jarvis_agent")
     session_id = params.get("session_id", "wyglass")
-    user_name = params.get("user_name", "sankofa")
-    user_role = params.get("user_role", "desenvolvedor e engenheiro de bugigangas tech")
+    user_name = params.get("user_name", "Chefe")
+    user_role = params.get("user_role", "")
+    user_context = params.get("user_context", "")
     tts_model = params.get("tts_model", "pt_BR-faber-medium.onnx")
     tavily_api_key = params.get("tavily_api_key", "")
+    omni_route = params.get("omni_route", {})
+    # Roteamento multi-agente: um gesto pode restringir quais skills ele expoe ao modelo (ex:
+    # um gesto "so pesquisa rapida" com allowed_skills=["search"]) -- se o gesto nao tiver essa
+    # preferencia propria, cai pro toggle global (aba FERRAMENTAS do dashboard, config.json >
+    # enabled_skills). None nos dois = todas as skills/ferramentas MCP disponiveis habilitadas.
+    allowed_skills = params.get("allowed_skills") or params.get("enabled_skills")
 
     if session_id not in smart_agent.conversations:
         smart_agent.conversations[session_id] = []
@@ -94,7 +101,7 @@ def open_jarvis_agent(params: dict):
         silence_duration=float(params.get("silence_duration_seconds", 1.0)),
         silence_threshold=float(params.get("silence_threshold", 300)),
     )
-    if params.get("denoise", True):
+    if params.get("denoise", False):
         pcm = jarvis.reduce_noise_pcm(pcm, jarvis.SAMPLE_RATE)
     wav_bytes = jarvis.pcm_to_wav_bytes(pcm, jarvis.SAMPLE_RATE)
 
@@ -116,7 +123,8 @@ def open_jarvis_agent(params: dict):
         raise RuntimeError("nao entendi o que voce disse")
 
     reply = smart_agent.process_turn(session_id, user_text, groq_api_key, user_name, user_role,
-                                      tts_model, tavily_api_key=tavily_api_key)
+                                      tts_model, tavily_api_key=tavily_api_key, omni_route=omni_route,
+                                      allowed_skills=allowed_skills, user_context=user_context)
     return f"jarvis: \"{reply}\""
 
 
@@ -135,6 +143,7 @@ def translator_agent(params: dict):
         raise ValueError("groq_api_key nao configurado pro translator_agent")
     pt_tts_model = params.get("pt_tts_model", "pt_BR-faber-medium.onnx")
     en_tts_model = params.get("en_tts_model", "en_US-lessac-medium.onnx")
+    omni_route = params.get("omni_route", {})
 
     capture_manager = jarvis.get_capture_manager()
     pcm = jarvis.record_audio_vad(
@@ -143,7 +152,7 @@ def translator_agent(params: dict):
         silence_duration=float(params.get("silence_duration_seconds", 1.0)),
         silence_threshold=float(params.get("silence_threshold", 400)),
     )
-    if params.get("denoise", True):
+    if params.get("denoise", False):
         pcm = jarvis.reduce_noise_pcm(pcm, jarvis.SAMPLE_RATE)
     wav_bytes = jarvis.pcm_to_wav_bytes(pcm, jarvis.SAMPLE_RATE)
     stt = jarvis.ask_groq_whisper(groq_api_key, wav_bytes, language=None, detect_language=True)
@@ -167,6 +176,7 @@ def translator_agent(params: dict):
         ),
         messages=[{"role": "user", "content": original_text}],
         max_tokens=300,
+        omni_route=omni_route,
     )
     translated_text = (message.get("content") or "").strip()
     if not translated_text:

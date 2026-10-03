@@ -61,10 +61,16 @@ export function buildReminder(
 ): Reminder | string {
   const text = input.text?.trim();
   if (!text) return 'texto vazio';
-  if (input.everyMinutes !== undefined && (!Number.isFinite(input.everyMinutes) || input.everyMinutes < 5)) {
+  if (
+    input.everyMinutes !== undefined &&
+    (!Number.isFinite(input.everyMinutes) || input.everyMinutes < 5)
+  ) {
     return 'a_cada_minutos deve ser pelo menos 5';
   }
-  if ((input.windowStart && !isHHMM(input.windowStart)) || (input.windowEnd && !isHHMM(input.windowEnd))) {
+  if (
+    (input.windowStart && !isHHMM(input.windowStart)) ||
+    (input.windowEnd && !isHHMM(input.windowEnd))
+  ) {
     return 'janela deve estar no formato HH:MM';
   }
   if (input.at !== undefined && !isHHMM(input.at)) return 'horario deve estar no formato HH:MM';
@@ -74,7 +80,8 @@ export function buildReminder(
     const today = atTime(new Date(now), input.at).getTime();
     first = today > now ? today : today + 24 * 60 * MINUTE;
   } else if (input.inMinutes !== undefined) {
-    if (!Number.isFinite(input.inMinutes) || input.inMinutes < 1) return 'em_minutos deve ser pelo menos 1';
+    if (!Number.isFinite(input.inMinutes) || input.inMinutes < 1)
+      return 'em_minutos deve ser pelo menos 1';
     first = now + Math.round(input.inMinutes) * MINUTE;
   } else if (input.everyMinutes !== undefined) {
     first = now + Math.round(input.everyMinutes) * MINUTE;
@@ -82,13 +89,16 @@ export function buildReminder(
     return 'informe em_minutos, horario ou a_cada_minutos';
   }
 
-  const everyMinutes = input.everyMinutes !== undefined ? Math.round(input.everyMinutes) : undefined;
+  const everyMinutes =
+    input.everyMinutes !== undefined ? Math.round(input.everyMinutes) : undefined;
   return {
     id,
     agent,
     text,
     ...(everyMinutes ? { everyMinutes } : {}),
-    ...(input.windowStart && input.windowEnd ? { windowStart: input.windowStart, windowEnd: input.windowEnd } : {}),
+    ...(input.windowStart && input.windowEnd
+      ? { windowStart: input.windowStart, windowEnd: input.windowEnd }
+      : {}),
     nextAt: everyMinutes ? clampToWindow(first, input.windowStart, input.windowEnd) : first,
     active: true,
     createdAt: now,
@@ -106,7 +116,10 @@ export function nextAfterFiring(r: Reminder, firedAt: number): number | null {
 }
 
 export function describeReminder(r: Reminder): string {
-  const when = new Date(r.nextAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  const when = new Date(r.nextAt).toLocaleString('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
   const every = r.everyMinutes ? `a cada ${r.everyMinutes} min` : 'uma vez';
   const window = r.windowStart ? ` (${r.windowStart}–${r.windowEnd})` : '';
   return `${r.id} | ${r.text} | ${every}${window} | próximo: ${when}${r.active ? '' : ' | pausado'}`;

@@ -3,7 +3,8 @@
 existe com o Brain Office rodando -- esta skill le os MESMOS bancos direto, somente leitura, e
 funciona com o Brain Office e o Planner Core desligados. Escritas continuam pelo planner-life MCP.
 
-Caminhos: config.json > brain_office (repo_dir, planner_db, brain_db)."""
+Caminhos: <office>/data/{planner,brain} por padrao (brain_office.office_dir); config.json >
+brain_office (repo_dir, planner_db, brain_db) sobrescreve, aceitando {office}."""
 import json
 import sqlite3
 from datetime import datetime
@@ -41,11 +42,12 @@ SCHEMA = {
 
 
 def _paths() -> tuple[Path, Path]:
+    import brain_office
     cfg = json.loads((Path(__file__).parent.parent / "config.json").read_text(encoding="utf-8"))
     bo = cfg.get("brain_office") or {}
-    repo = Path(bo.get("repo_dir") or Path.home() / "Documents/repo/brain-agents")
-    planner = Path(bo.get("planner_db") or repo / "data/planner/planner.db")
-    brain = Path(bo.get("brain_db") or repo / "data/brain/brain.db")
+    repo = brain_office.office_dir()
+    planner = Path(brain_office.expand(bo.get("planner_db") or "") or repo / "data/planner/planner.db")
+    brain = Path(brain_office.expand(bo.get("brain_db") or "") or repo / "data/brain/brain.db")
     return planner, brain
 
 

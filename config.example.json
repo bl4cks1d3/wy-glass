@@ -175,11 +175,11 @@
       "args": [
         "--no-warnings",
         "--import",
-        "file:///CAMINHO/PARA/brain-agents/node_modules/tsx/dist/loader.mjs",
-        "CAMINHO/PARA/brain-agents/services/brain/apps/mcp/src/index.ts"
+        "file:///{office}/node_modules/tsx/dist/loader.mjs",
+        "{office}/services/brain/apps/mcp/src/index.ts"
       ],
       "env": {
-        "MCB_DB_PATH": "CAMINHO/PARA/brain-agents/data/brain/brain.db",
+        "MCB_DB_PATH": "{office}/data/brain/brain.db",
         "MCB_AGENT": "wy-glass"
       },
       "connect_timeout": 60,
@@ -198,7 +198,7 @@
         "suggest_project",
         "record_feedback"
       ],
-      "cwd": "CAMINHO/PARA/brain-agents/services/brain"
+      "cwd": "{office}/services/brain"
     },
     {
       "name": "planner-life",
@@ -206,7 +206,7 @@
       "enabled": true,
       "command": "node",
       "args": [
-        "CAMINHO/PARA/brain-agents/services/planner/packages/mcp/dist/index.js"
+        "{office}/services/planner/packages/mcp/dist/index.js"
       ],
       "env": {
         "PLANNER_CORE_URL": "http://localhost:4000",
@@ -222,8 +222,8 @@
     }
   ],
   "brain_office": {
-    "repo_dir": "CAMINHO/PARA/brain-agents",
-    "planner_db": "CAMINHO/PARA/brain-agents/data/planner/planner.db",
-    "brain_db": "CAMINHO/PARA/brain-agents/data/brain/brain.db"
+    "repo_dir": "",
+    "planner_db": "{office}/data/planner/planner.db",
+    "brain_db": "{office}/data/brain/brain.db"
   }
 }

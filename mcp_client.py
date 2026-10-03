@@ -93,9 +93,11 @@ def connect_configured_servers(servers: list[dict]):
     """Conecta todos os servidores MCP habilitados em config.json > mcp_servers. Chamado uma vez
     no startup do server.py (nao bloqueia o event loop principal — roda no loop dedicado desta
     thread). Falha de um servidor nao impede os outros de conectar."""
+    import brain_office
     for cfg in servers or []:
         if not cfg.get("enabled", True):
             continue
+        cfg = brain_office.expand(cfg)  # {office} -> raiz do monorepo
         name = cfg.get("name")
         command = cfg.get("command")
         if not name or not command:

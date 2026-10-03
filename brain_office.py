@@ -34,6 +34,31 @@ def _cfg() -> dict:
         return {}
 
 
+def office_dir() -> Path:
+    """Raiz do monorepo do Brain Office. O Wy Glass mora em <office>/services/wyglass, entao por
+    padrao e so subir duas pastas; config.json > brain_office.repo_dir sobrescreve (ex.: rodar o
+    oculos fora do monorepo)."""
+    configured = _cfg().get("repo_dir")
+    if configured:
+        return Path(configured)
+    here = Path(__file__).resolve().parent
+    if here.parent.name == "services":
+        return here.parent.parent
+    return Path.home() / "Documents" / "repo" / "brain-agents"
+
+
+def expand(value):
+    """Troca {office} pelo caminho do monorepo em strings (e listas/dicts de strings) da config --
+    o que deixa mcp_servers e caminhos de banco portaveis, sem caminho absoluto da maquina."""
+    if isinstance(value, str):
+        return value.replace("{office}", office_dir().as_posix())
+    if isinstance(value, list):
+        return [expand(v) for v in value]
+    if isinstance(value, dict):
+        return {k: expand(v) for k, v in value.items()}
+    return value
+
+
 def base_url() -> str:
     url = _cfg().get("url")
     if url:
@@ -83,7 +108,7 @@ def start() -> str:
     tambem sobe o Planner Core, o agente, a voz e o Current Brain (supervisor de servicos)."""
     if is_up():
         return "O Brain Office ja esta rodando."
-    repo = Path(_cfg().get("repo_dir") or Path.home() / "Documents/repo/brain-agents")
+    repo = office_dir()
     cli = repo / "dist" / "cli.js"
     if not cli.exists():
         return f"Nao achei o build do Brain Office em {cli} (rode npm run build no brain-agents)."

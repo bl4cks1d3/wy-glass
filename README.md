@@ -2,43 +2,45 @@
 
 Óculos inteligentes genéricos (revenda "Microwear W AI 4") reprogramados via engenharia reversa de Bluetooth Low Energy, para funcionar como um assistente de IA por voz conectado diretamente ao PC — sem depender do app oficial do fabricante.
 
+> Este projeto vive no monorepo do **Brain Office** em `services/wyglass`, com o histórico do antigo repositório `wy-glass` preservado. Caminhos para o escritório, os MCPs e os bancos usam `{office}` em `config.json`, resolvido para a raiz do monorepo.
+
 📚 **Estudo técnico completo, com metodologia de engenharia reversa passo a passo, arquitetura detalhada e roteiro futuro: [`docs/00-indice.md`](docs/00-indice.md)**
 
 ---
 
 ## 1. O hardware
 
-| Item | Valor |
-|---|---|
-| Nome comercial | Microwear W AI 4 |
-| Nome interno do firmware | `LNJ-W03` (versão `0.2.6`) |
-| App oficial (não utilizado por nós) | MActive Pro (`com.njj.mactivepro`) — app genérico do fabricante, reaproveitado de outros produtos (inclusive navegação veicular) |
-| Chipset Bluetooth | Baseado em Jieli (evidenciado por bibliotecas `libjl_opus.so` / `libjl_speex.so` no APK) |
-| Conectividade | Bluetooth 5.3 — **dual**: BLE (controle) + Bluetooth clássico A2DP/HFP (áudio) |
-| Botões físicos | 2 — "Frente" (perto da lente) e "Trás" (haste) |
-| Câmera | Não — esta unidade não tem câmera, só lanterna (o manual do fabricante menciona gravação de foto/vídeo, mas isso não se aplica a este hardware) |
-| Áudio | Alto-falante open-ear + microfone, via perfil clássico A2DP/HFP |
+| Item                                | Valor                                                                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nome comercial                      | Microwear W AI 4                                                                                                                                |
+| Nome interno do firmware            | `LNJ-W03` (versão `0.2.6`)                                                                                                                      |
+| App oficial (não utilizado por nós) | MActive Pro (`com.njj.mactivepro`) — app genérico do fabricante, reaproveitado de outros produtos (inclusive navegação veicular)                |
+| Chipset Bluetooth                   | Baseado em Jieli (evidenciado por bibliotecas `libjl_opus.so` / `libjl_speex.so` no APK)                                                        |
+| Conectividade                       | Bluetooth 5.3 — **dual**: BLE (controle) + Bluetooth clássico A2DP/HFP (áudio)                                                                  |
+| Botões físicos                      | 2 — "Frente" (perto da lente) e "Trás" (haste)                                                                                                  |
+| Câmera                              | Não — esta unidade não tem câmera, só lanterna (o manual do fabricante menciona gravação de foto/vídeo, mas isso não se aplica a este hardware) |
+| Áudio                               | Alto-falante open-ear + microfone, via perfil clássico A2DP/HFP                                                                                 |
 
 ### 1.1 Tabela de funções dos botões (manual oficial do fabricante)
 
 **Botão da Frente:**
 
-| Função | Gesto |
-|---|---|
-| Ligar/Desligar | Toque curto |
-| Atender/encerrar chamada | Clique |
-| Próxima música | Clique duplo |
-| **Despertar assistente de IA** | **Clique simples** |
-| Gravação (foto/vídeo) — do manual, não se aplica (sem câmera nesta unidade) | Segurar 2s |
+| Função                                                                      | Gesto              |
+| --------------------------------------------------------------------------- | ------------------ |
+| Ligar/Desligar                                                              | Toque curto        |
+| Atender/encerrar chamada                                                    | Clique             |
+| Próxima música                                                              | Clique duplo       |
+| **Despertar assistente de IA**                                              | **Clique simples** |
+| Gravação (foto/vídeo) — do manual, não se aplica (sem câmera nesta unidade) | Segurar 2s         |
 
 **Botão de Trás:**
 
-| Função | Gesto |
-|---|---|
-| Lanterna | Segurar (liga/desliga) |
-| Atender chamada | Clique |
-| Play/pause música | Clique |
-| Música anterior | Clique duplo |
+| Função            | Gesto                  |
+| ----------------- | ---------------------- |
+| Lanterna          | Segurar (liga/desliga) |
+| Atender chamada   | Clique                 |
+| Play/pause música | Clique                 |
+| Música anterior   | Clique duplo           |
 
 > Achado importante: o gatilho oficial do assistente de IA é um **clique simples**, não uma pressão longa como presumimos no início do projeto. Isso bate exatamente com o sinal confiável que decodificamos por engenharia reversa (ver §2).
 
@@ -55,13 +57,13 @@ Capturado via `btsnoop_hci.log` do Android e confirmado ao vivo conectando diret
 
 Todo pacote começa com o byte mágico `0xBC`.
 
-| Padrão (hex) | Significado |
-|---|---|
-| `bc 03 03 01 01 01` | **Clique no botão 1 (Frente)** — sinal confiável, 100% reprodutível |
-| `bc 03 03 01 02 02` | **Clique no botão 2 (Trás)** — mesmo formato, identificador do botão no 5º/6º byte |
-| `bc 07 03 01 XX XX` | Heartbeat/status periódico automático (~60s) — **não é clique**, ignorar |
-| `bc 09 03 ...` | Telemetria interna (contadores crescentes, provável uso/bateria) — **não é clique** |
-| `bc 01 03 ...` | Resposta de info do dispositivo (contém string tipo `LNJ-W03-0.2.6`) |
+| Padrão (hex)        | Significado                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| `bc 03 03 01 01 01` | **Clique no botão 1 (Frente)** — sinal confiável, 100% reprodutível                 |
+| `bc 03 03 01 02 02` | **Clique no botão 2 (Trás)** — mesmo formato, identificador do botão no 5º/6º byte  |
+| `bc 07 03 01 XX XX` | Heartbeat/status periódico automático (~60s) — **não é clique**, ignorar            |
+| `bc 09 03 ...`      | Telemetria interna (contadores crescentes, provável uso/bateria) — **não é clique** |
+| `bc 01 03 ...`      | Resposta de info do dispositivo (contém string tipo `LNJ-W03-0.2.6`)                |
 
 ### Armadilhas que já caímos (documentadas para não repetir)
 
@@ -106,26 +108,26 @@ Wake word "Hey Jarvis"       ├──► server.py (FastAPI + Bleak)
 
 ### 3.2 Páginas do painel
 
-| Rota | Função |
-|---|---|
-| `/` | Landing page de apresentação do projeto (v1) |
-| `/deck` | Painel de controle — mapeia gestos → ações, liga/desliga execução real |
+| Rota    | Função                                                                                             |
+| ------- | -------------------------------------------------------------------------------------------------- |
+| `/`     | Landing page de apresentação do projeto (v1)                                                       |
+| `/deck` | Painel de controle — mapeia gestos → ações, liga/desliga execução real                             |
 | `/test` | Painel de diagnóstico — feed bruto do BLE classificado ao vivo, contador por tipo, marcação manual |
 
 ### 3.3 Tipos de ação disponíveis hoje
 
-| Ação | O que faz |
-|---|---|
-| `run_command` | Executa um programa/comando qualquer |
-| `open_url` | Abre uma URL no navegador padrão |
-| `key_shortcut` | Simula um atalho de teclado |
-| `screenshot` | Tira print da tela e salva em arquivo |
-| `voice_command` | Grava áudio e salva em `.wav` (sem IA) |
-| `jarvis_voice_agent` | Pipeline multi-provedor (Gemini/Groq/OpenRouter/Mistral/Ollama) — alternativa ao agente unificado, um turno sem tools |
-| `open_jarvis_agent` | **Agente unificado (padrão)**: grava → Groq Whisper → Groq com tool-calling (busca, abrir URL, ver/tirar print de tela, notícias, abrir dashboard, trocar personalidade, iniciar tradutor, encerrar conversa) → fala a resposta com Piper. Memória de conversa entre turnos. |
-| `translator_agent` | Grava fala em qualquer idioma, traduz e fala em voz alta — bidirecional (PT↔EN), direção decidida automaticamente pelo idioma detectado |
-| `stop_conversation` | Encerra o modo conversacional (com frase de despedida opcional) |
-| `open_dashboard` | Abre o painel de controle |
+| Ação                 | O que faz                                                                                                                                                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_command`        | Executa um programa/comando qualquer                                                                                                                                                                                                                                         |
+| `open_url`           | Abre uma URL no navegador padrão                                                                                                                                                                                                                                             |
+| `key_shortcut`       | Simula um atalho de teclado                                                                                                                                                                                                                                                  |
+| `screenshot`         | Tira print da tela e salva em arquivo                                                                                                                                                                                                                                        |
+| `voice_command`      | Grava áudio e salva em `.wav` (sem IA)                                                                                                                                                                                                                                       |
+| `jarvis_voice_agent` | Pipeline multi-provedor (Gemini/Groq/OpenRouter/Mistral/Ollama) — alternativa ao agente unificado, um turno sem tools                                                                                                                                                        |
+| `open_jarvis_agent`  | **Agente unificado (padrão)**: grava → Groq Whisper → Groq com tool-calling (busca, abrir URL, ver/tirar print de tela, notícias, abrir dashboard, trocar personalidade, iniciar tradutor, encerrar conversa) → fala a resposta com Piper. Memória de conversa entre turnos. |
+| `translator_agent`   | Grava fala em qualquer idioma, traduz e fala em voz alta — bidirecional (PT↔EN), direção decidida automaticamente pelo idioma detectado                                                                                                                                      |
+| `stop_conversation`  | Encerra o modo conversacional (com frase de despedida opcional)                                                                                                                                                                                                              |
+| `open_dashboard`     | Abre o painel de controle                                                                                                                                                                                                                                                    |
 
 Detalhes de parâmetros de cada ação: [`docs/06-referencia-acoes.md`](docs/06-referencia-acoes.md).
 
@@ -167,12 +169,12 @@ alto-falante ◄──stream PCM 24k─────────┤
 - **9router** — gateway OpenAI-compatible local (`npm i -g 9router && 9router`, dashboard em `localhost:20128`). Ligue em `config.json > nine_router.enabled` e escolha o `model` (combo ou `provedor/modelo` do dashboard). Tem precedência sobre o OmniRoute (mesma porta). Saúde em `GET /api/gateway/health`. Não use o provedor "Claude Code" OAuth do 9router: rotear o token da assinatura por proxy de terceiro viola os termos; pra Claude, use o agente Claude acima.
 - **Interface `/orb`** — orbe estilo Siri/visionOS que reage ao nível do mic (ouvindo) e da voz (falando), anéis orbitais 3D com os agentes/tools como satélites que acendem quando trabalham, legendas ao vivo e feed de atividade. Espaço liga/desliga. Abre como janela de app pelo ícone da bandeja (**Abrir Wy Glass Live**).
 
-| Endpoint | Função |
-|---|---|
-| `GET /orb` | Interface Live |
-| `GET /api/live` | Estado, modelo, voz, gateway, agentes disponíveis |
-| `POST /api/live/start` · `/api/live/stop` | Liga/desliga a sessão |
-| `GET /api/gateway/health` | Testa 9router/OmniRoute listando modelos |
+| Endpoint                                  | Função                                            |
+| ----------------------------------------- | ------------------------------------------------- |
+| `GET /orb`                                | Interface Live                                    |
+| `GET /api/live`                           | Estado, modelo, voz, gateway, agentes disponíveis |
+| `POST /api/live/start` · `/api/live/stop` | Liga/desliga a sessão                             |
+| `GET /api/gateway/health`                 | Testa 9router/OmniRoute listando modelos          |
 
 - **Modo pausa** — "espera um minutinho" (ou qualquer frase de `live.pause_phrases`, ou um pedido livre que o modelo entende e atende com a tool `pausar_conversa`, ou o **botão 1** dos óculos, ou o botão ⏸ do orb) coloca o Live em espera: o microfone para de ir pro Gemini e passa a alimentar só o [wake_spotter.py](wake_spotter.py), reconhecimento **100% local** (Vosk, `models/vosk-model-small-pt-0.3`). A conversa volta ao ouvir qualquer frase de `live.wake_phrases` ("e aí óculos", "hey jarvis", "pode continuar"…), com som de saída/entrada nos óculos. Nomes fora do vocabulário do modelo ("sankofa") funcionam depois de **calibrar com a sua voz** (Ajustes → Voz Live → Calibrar: o jeito que o Vosk te ouve vira apelido em `live.wake_aliases`). Pausa acima de `live.pause_timeout_min` (30) encerra o Live. Testado ponta a ponta com o Gemini e mic simulado: a conversa durante a pausa não gerou nenhuma transcrição no Gemini.
 - **Painéis estruturados** ([orb-cards.js](static/orb-cards.js)) — o resultado das ferramentas de dados abre um painel ao lado do orbe (folha inferior no celular), com renderizador por fonte: Current Brain (contexto com métricas, lacunas e mapa de conhecimento; GitHub em alta; conteúdo por prioridade; marcos por tecnologia), Planner Life (coleções, registros em tabela, automações), Brain Office (Hoje, agentes, mural, respostas dos setores) e `ler_dados_da_vida`; o resto cai num renderizador genérico de JSON. A tool `mostrar_na_tela` deixa o agente montar o próprio painel (`lista`, `tabela`, `metricas`, `linha_do_tempo`, `passos`, `texto`) e falar só o resumo. Histórico navegável dos últimos 30 painéis. A voz recebe só as tools da allowlist de cada MCP; o agente Cérebro recebe todas, menos as `delete_*`.
@@ -221,4 +223,4 @@ Config (`config.json`): `user_profile`, `mcp_servers`, `live` (`model`, `voice`,
 
 ---
 
-*Wy Glass — projeto pessoal de hardware hacking.*
+_Wy Glass — projeto pessoal de hardware hacking._

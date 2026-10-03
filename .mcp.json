@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "planner-life": {
+      "command": "node",
+      "args": [
+        "packages/mcp/dist/index.js"
+      ]
+    }
+  }
+}

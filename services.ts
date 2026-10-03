@@ -29,6 +29,8 @@ interface ServiceDef {
   args: string[];
   port: (env: NodeJS.ProcessEnv) => number | null;
   health?: string;
+  /** Default when envFlag is unset. Off for services that may already run on their own. */
+  defaultOn?: boolean;
 }
 
 const LOG_LINES = 200;
@@ -148,6 +150,19 @@ function defs(repoDir: string): ServiceDef[] {
       port: (e) => num(e.MCB_TERMINAL_PORT, 3031),
       health: '/health',
     },
+    {
+      // Off unless BRAIN_SVC_WYGLASS=true: the glasses server is often started on its own
+      // (tray/shortcut), and two copies fight over port 8731 and the single BLE link.
+      id: 'wyglass',
+      label: 'Wy Glass (óculos: BLE, voz Live, agentes)',
+      envFlag: 'BRAIN_SVC_WYGLASS',
+      cwd: path.join(repoDir, 'services', 'wyglass'),
+      command: process.env.WYGLASS_PYTHON || 'python',
+      args: ['server.py'],
+      port: () => 8731,
+      health: '/api/status',
+      defaultOn: false,
+    },
   ];
 }
 
@@ -175,7 +190,7 @@ export class ServiceSupervisor {
         status: {
           id: def.id,
           label: def.label,
-          enabled: this.flag(def.envFlag),
+          enabled: this.flag(def.envFlag, def.defaultOn ?? true),
           state: 'parado',
           port: def.port(process.env),
           pid: null,
@@ -188,8 +203,10 @@ export class ServiceSupervisor {
     }
   }
 
-  private flag(name: string): boolean {
-    return (process.env[name] ?? 'true').toLowerCase() !== 'false';
+  private flag(name: string, defaultOn = true): boolean {
+    const v = process.env[name];
+    if (v === undefined || v === '') return defaultOn;
+    return v.toLowerCase() !== 'false';
   }
 
   setOnChange(fn: () => void): void {

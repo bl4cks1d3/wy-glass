@@ -6,6 +6,7 @@
 <title>Wy Glass</title>
 <link rel="icon" href="/static/icon.png">
 <link rel="stylesheet" href="/static/orb-panel.css">
+<link rel="stylesheet" href="/static/orb-cards.css">
 <style>
 :root {
   --bg: #050507;
@@ -181,6 +182,9 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17" /><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor" stroke="none"/></svg>
   </button>
   <button class="btn-live" id="liveBtn"><span class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i></span><span id="liveLabel">Iniciar Live</span></button>
+  <button class="btn-icon" id="pauseBtn" title="Pausar (botão 1 dos óculos)" aria-label="Pausar conversa" hidden>
+    <svg id="pauseIco" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg>
+  </button>
   <button class="btn-icon" id="panelBtn" title="Ajustes" aria-label="Abrir painel de ajustes">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
   </button>
@@ -221,6 +225,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     idle: ["Modo Live", "Pronto"], connecting: ["Conectando", "Abrindo canal…"],
     listening: ["Ouvindo", "Pode falar"], speaking: ["Jarvis", "Falando"],
     working: ["Agentes", "Trabalhando…"], error: ["Erro", "Algo deu errado"],
+    paused: ["Em pausa", "Não estou ouvindo"],
   };
   // paleta do orbe por estado: [r,g,b] x4 blobs
   const PALETTES = {
@@ -230,6 +235,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     working:    [[191,90,242],[94,92,230],[255,55,95],[120,100,255]],
     speaking:   [[255,55,95],[255,159,10],[191,90,242],[255,100,140]],
     error:      [[255,69,58],[255,120,90],[200,60,80],[255,90,60]],
+    paused:     [[150,110,60],[110,90,70],[130,100,80],[90,80,70]],
   };
   let palette = PALETTES.idle.map(c => c.slice());
 
@@ -239,8 +245,18 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     const [eb, txt] = STATE_LABEL[S.status];
     $("eyebrow").textContent = eb;
     $("stateText").textContent = S.status === "working" && detail ? toolLabel(detail) : (S.status === "error" && detail ? detail : txt);
+    if (S.status === "paused") {
+      // a frase pra voltar fica escrita na tela: o usuario esta olhando pra outra pessoa, nao pro orb
+      const first = (detail || "").replace(/^diga:\s*/, "").split(" / ")[0];
+      $("stateText").textContent = first ? `Diga “${first}”` : txt;
+    }
     $("liveBtn").classList.toggle("active", S.running);
     $("liveLabel").textContent = S.running ? "Encerrar" : "Iniciar Live";
+    $("pauseBtn").hidden = !S.running || S.status === "connecting";
+    $("pauseIco").innerHTML = S.status === "paused"
+      ? '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.4-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/>'
+      : '<rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/>';
+    $("pauseBtn").title = S.status === "paused" ? "Retomar conversa" : "Pausar (botão 1 dos óculos)";
   }
 
   /* ---------- orbital satellites ---------- */
@@ -250,6 +266,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     set_persona: "Trocando persona", end_conversation: "Encerrando", delegate_task: "Delegando",
     pc_apps: "Apps", pc_window: "Janelas", pc_keyboard: "Teclado", pc_media: "Mídia",
     pc_click: "Mouse", pc_system: "Sistema",
+    ler_dados_da_vida: "Lendo sua vida", escritorio: "Escritório", mostrar_na_tela: "Na tela",
   };
   const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
   function buildSatellites(agents, skills) {
@@ -372,7 +389,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     ctx.fillStyle = light ? "#dfe3f0" : "#0b0d1c";
     ctx.fillRect(cx - orbR, cy - orbR, orbR * 2, orbR * 2);
     ctx.globalCompositeOperation = light ? "multiply" : "lighter";
-    const speed = S.status === "working" ? 1.7 : S.running ? 1.0 : 0.45;
+    const speed = S.status === "working" ? 1.7 : S.status === "paused" ? 0.2 : S.running ? 1.0 : 0.45;
     for (let i = 0; i < 4; i++) {
       const a = t * speed * (0.55 + i * 0.17) + i * 1.7;
       const wob = 0.42 + energy * 0.35;
@@ -461,6 +478,10 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
       case "live_level": S.inLevel = Math.max(S.inLevel, m.in); S.outLevel = Math.max(S.outLevel, m.out); break;
       case "live_transcript": caption(m.role, m.text, m.final); break;
       case "live_interrupted": $("capAi").classList.add("fade"); break;
+      case "live_pause":
+        if (m.paused) { $("capUser").classList.add("fade"); $("capAi").classList.add("fade"); toast("Em pausa: não estou ouvindo"); addFeed("Pausa", m.reason || ""); }
+        else { toast("De volta"); addFeed("Retomada", m.reason || ""); }
+        break;
       case "live_session": $("modelPill").textContent = `${m.model} · ${m.voice}`; break;
       case "live_tool":
         if (m.phase === "start") {
@@ -469,8 +490,10 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
           addFeed(toolLabel(m.name), m.args?.task || m.args?.query || JSON.stringify(m.args || {}), "tool");
         } else {
           addFeed(toolLabel(m.name) + (m.ok ? " · ok" : " · falhou"), m.result || "", m.ok ? "tool" : "tool err");
+          window.wyCards && window.wyCards.fromTool(m);
         }
         break;
+      case "live_card": window.wyCards && window.wyCards.fromAgent(m.card); break;
       case "gesture": if (m.label) toast(m.label); break;
     }
   }
@@ -515,6 +538,10 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
   $("liveBtn").onclick = toggleLive;
   $("sheetBtn").onclick = () => $("sheet").classList.toggle("open");
   $("panelBtn").onclick = () => window.wyPanel && window.wyPanel.open();
+  $("pauseBtn").onclick = async () => {
+    const r = await fetch(S.status === "paused" ? "/api/live/resume" : "/api/live/pause", { method: "POST" }).catch(() => null);
+    if (r && !r.ok) toast((await r.json().catch(() => ({}))).error || "falha");
+  };
   addEventListener("wy:config", refresh);
   addEventListener("keydown", (e) => {
     if (e.code === "Space" && !e.repeat && !/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) { e.preventDefault(); toggleLive(); }
@@ -524,5 +551,6 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
 })();
 </script>
 <script src="/static/orb-panel.js"></script>
+<script src="/static/orb-cards.js"></script>
 </body>
 </html>

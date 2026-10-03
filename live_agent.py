@@ -19,9 +19,11 @@ server.py (quebra o bleak/WinRT, ver server.py::_speak_blocking). O server so ch
 e recebe eventos pelo callback on_event, que e chamado a partir desta thread.
 """
 import asyncio
+import collections
 import queue
 import threading
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -36,7 +38,21 @@ OUT_RATE = 24000
 # falando por cima de proposito.
 ECHO_TAIL_SECONDS = 0.6
 DEFAULT_BARGE_IN_RMS = 2500
+# Um pico isolado do proprio alto-falante passava pelo gate e o Gemini cortava a fala achando que
+# era o usuario interrompendo. So libera o mic com N blocos seguidos (30 ms cada) acima do limite.
+BARGE_IN_CHUNKS = 3
 LEVEL_EVENT_INTERVAL = 1 / 15
+LOG_PATH = Path(__file__).parent / "live_agent.log"
+
+
+def _log(msg: str):
+    """Diagnostico de audio por sessao (cortes, interrupcoes, reconexoes) -- o servidor costuma
+    rodar sem console, entao print() some."""
+    try:
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}\n")
+    except OSError:
+        pass
 
 # Tools que nao fazem sentido no modo live: o tradutor abre o proprio mic/TTS (briga com o stream
 # deste modulo) e o Gemini Live ja traduz nativamente se pedirem.
@@ -62,8 +78,8 @@ AGENTS = {
     },
     "cerebro": {
         "label": "Cérebro",
-        "description": ("segundo cerebro (current-brain) e Planner Life: contexto e prioridades do usuario, "
-                        "metas, trilhas de estudo, conteudo analisado, repos em alta, registros e automacoes"),
+        "description": ("Brain Office: segundo cerebro (current-brain), Planner Life, agentes residentes de "
+                        "cada setor da vida, lembretes, mural e o retrato da vida do usuario"),
         "skills": "mcp",
     },
     "claude": {
@@ -83,6 +99,73 @@ _DELEGATE_DESCRIPTION = (
     "avise o usuario em poucas palavras que vai delegar e pra quem."
 )
 
+# Painel estruturado na tela do orb (/orb): o agente escolhe o formato. Nao e uma skill do
+# registry porque nao executa nada -- so vira um evento live_card pro front renderizar.
+_CARD_SCHEMA = {
+    "name": "mostrar_na_tela",
+    "description": (
+        "Mostra um painel estruturado na tela do usuario (o orb), alem do que voce fala. Use quando "
+        "a resposta tiver dados que se leem melhor do que se ouvem: listas, comparacoes, numeros, "
+        "agenda, passos, ranking. Fale so um resumo curto e deixe o detalhe no painel. Resultados de "
+        "ferramentas de dados (MCPs, ler_dados_da_vida, escritorio) JA aparecem sozinhos na tela; "
+        "use mostrar_na_tela pra montar uma visao propria (filtrada, comparada, resumida)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "titulo": {"type": "string"},
+            "subtitulo": {"type": "string"},
+            "tipo": {"type": "string", "enum": ["lista", "tabela", "metricas", "linha_do_tempo", "passos", "texto"]},
+            "itens": {
+                "type": "array",
+                "description": "lista/metricas/linha_do_tempo/passos",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "titulo": {"type": "string"},
+                        "detalhe": {"type": "string"},
+                        "valor": {"type": "string", "description": "numero ou destaque (metricas)"},
+                        "tag": {"type": "string", "description": "rotulo curto: prioridade, status, categoria"},
+                        "quando": {"type": "string", "description": "data/hora (linha_do_tempo)"},
+                        "progresso": {"type": "number", "description": "0-100"},
+                        "url": {"type": "string"},
+                    },
+                },
+            },
+            "colunas": {"type": "array", "items": {"type": "string"}, "description": "cabecalho (tabela)"},
+            "linhas": {"type": "array", "items": {"type": "array", "items": {"type": "string"}},
+                       "description": "linhas da tabela, na ordem das colunas"},
+            "texto": {"type": "string", "description": "corpo (tipo texto); paragrafos separados por linha em branco"},
+        },
+        "required": ["titulo", "tipo"],
+    },
+}
+
+# Modo pausa ("espera um minutinho"): o usuario vai falar com outra pessoa. Nada do mic vai pro
+# Gemini ate ele dizer uma frase de ativacao, detectada LOCALMENTE (wake_spotter, Vosk offline).
+DEFAULT_PAUSE_PHRASES = ["espera um minutinho", "espera um pouco", "espera um minuto", "so um minuto",
+                         "so um minutinho", "um momento", "so um momento", "pausa", "aguarda", "segura ai",
+                         "ja volto", "me da um minuto", "fica quieto um pouco"]
+DEFAULT_WAKE_PHRASES = ["e aí óculos", "hey jarvis", "pode continuar", "sankofa"]
+DEFAULT_WAKE_ALIASES = {"hey jarvis": ["em chaves", "ei jarvis"]}
+DEFAULT_PAUSE_TIMEOUT_MIN = 30
+# frase de pausa so conta em fala curta: "um momento historico pra empresa" nao e pedido de pausa
+PAUSE_MAX_WORDS = 8
+
+_PAUSE_SCHEMA = {
+    "name": "pausar_conversa",
+    "description": (
+        "Coloca a conversa em espera: voce para de ouvir ate o usuario dizer a palavra de ativacao. "
+        "Use quando o usuario pedir pra esperar/aguardar/pausar porque vai falar com outra pessoa, "
+        "atender alguem ou se ausentar (ex: 'espera que vou atender', 'me da um segundo'). Antes de "
+        "chamar, responda em no maximo 3 palavras ('Claro, aguardo.')."
+    ),
+    "parameters": {"type": "object", "properties": {}},
+}
+
+_paused = threading.Event()
+_ctl: dict = {}  # pause/resume da sessao ativa (rodam no event loop deste modulo)
+
 _loop: asyncio.AbstractEventLoop | None = None
 _thread: threading.Thread | None = None
 _task: asyncio.Task | None = None
@@ -91,17 +174,33 @@ _status = "idle"
 
 
 def status() -> str:
-    return _status if is_running() else "idle"
+    if not is_running():
+        return "idle"
+    return "paused" if _paused.is_set() else _status
+
+
+def is_paused() -> bool:
+    return is_running() and _paused.is_set()
+
+
+def pause(reason: str = "manual"):
+    if _loop is not None and is_running() and "pause" in _ctl:
+        _loop.call_soon_threadsafe(_ctl["pause"], reason)
+
+
+def resume(reason: str = "manual"):
+    if _loop is not None and is_running() and "resume" in _ctl:
+        _loop.call_soon_threadsafe(_ctl["resume"], reason)
 
 
 def is_running() -> bool:
     return _task is not None and not _task.done()
 
 
-def _mcp_tool_names() -> list[str]:
+def _mcp_tool_names(include_hidden: bool = False) -> list[str]:
     try:
         import mcp_client
-        return [t["function"]["name"] for t in mcp_client.get_all_tool_schemas()]
+        return [t["function"]["name"] for t in mcp_client.get_all_tool_schemas(include_hidden)]
     except Exception:
         return []
 
@@ -165,23 +264,49 @@ def stop():
 
 class _Speaker:
     """Saida de audio 24 kHz pro dispositivo padrao (o alto-falante Bluetooth dos oculos).
-    Buffer em bytes alimentado pelo stream do modelo; clear() corta na hora (barge-in)."""
+
+    Jitter buffer: o audio do Gemini chega em rajadas pela rede, e tocar cada pedaco assim que
+    chega faz o buffer esvaziar no meio da palavra sempre que o proximo atrasa -- a voz "picota".
+    So comeca a tocar com PREROLL acumulado; se esvaziar no meio do turno, volta a acumular (uma
+    pausa curta e limpa em vez de varios cortes). No fim do turno (end_turn) toca o resto mesmo
+    abaixo do pre-roll. clear() corta na hora (barge-in)."""
+
+    PREROLL_SECONDS = 0.25
 
     def __init__(self):
         import sounddevice as sd
         self._buf = bytearray()
         self._lock = threading.Lock()
+        self._playing = False
+        self._flush = False
+        self._preroll = int(OUT_RATE * self.PREROLL_SECONDS) * 2
+        self.underruns = 0
+        self.device_underruns = 0
         self.last_audio_at = 0.0
         self.level = 0.0
+        # blocos de 40ms e latencia "high": com 20ms/"low" o A2DP/HFP do Windows perde blocos
         self._stream = sd.RawOutputStream(samplerate=OUT_RATE, channels=1, dtype="int16",
-                                           blocksize=int(OUT_RATE * 0.02), callback=self._callback)
+                                           blocksize=int(OUT_RATE * 0.04), latency="high",
+                                           callback=self._callback)
         self._stream.start()
 
     def _callback(self, outdata, frames, time_info, status):
+        if status and status.output_underflow:
+            self.device_underruns += 1
         n = frames * 2
         with self._lock:
-            chunk = bytes(self._buf[:n])
-            del self._buf[:n]
+            if not self._playing and (len(self._buf) >= self._preroll or (self._flush and self._buf)):
+                self._playing = True
+            chunk = b""
+            if self._playing:
+                chunk = bytes(self._buf[:n])
+                del self._buf[:n]
+                if not self._buf:
+                    self._playing = False
+                    if self._flush:
+                        self._flush = False  # turno terminou de tocar
+                    elif len(chunk) < n:
+                        self.underruns += 1  # rede nao acompanhou: volta pro pre-roll
         if chunk:
             self.last_audio_at = time.monotonic()
             samples = np.frombuffer(chunk, dtype=np.int16)
@@ -196,13 +321,20 @@ class _Speaker:
         with self._lock:
             self._buf.extend(data)
 
+    def end_turn(self):
+        with self._lock:
+            if self._buf:
+                self._flush = True
+
     def clear(self):
         with self._lock:
             self._buf.clear()
+            self._playing = False
+            self._flush = False
 
     def busy(self) -> bool:
         with self._lock:
-            pending = len(self._buf) > 0
+            pending = len(self._buf) > 0 or self._playing
         return pending or (time.monotonic() - self.last_audio_at) < ECHO_TAIL_SECONDS
 
     def drained(self) -> bool:
@@ -215,6 +347,18 @@ class _Speaker:
             self._stream.close()
         except Exception:
             pass
+
+
+def _chime(up: bool) -> bytes:
+    """Dois toques curtos (24 kHz): subindo = voltei a ouvir; descendo = entrei em pausa."""
+    freqs = (660, 990) if up else (880, 587)
+    parts = []
+    for f in freqs:
+        t = np.arange(int(OUT_RATE * 0.09)) / OUT_RATE
+        env = np.minimum(1, np.minimum(t, t[::-1]) * 60)
+        parts.append((np.sin(2 * np.pi * f * t) * env * 9000).astype(np.int16))
+        parts.append(np.zeros(int(OUT_RATE * 0.04), dtype=np.int16))
+    return np.concatenate(parts).tobytes()
 
 
 def _build_tools(allowed: list[str] | None, cfg: dict):
@@ -244,6 +388,10 @@ def _build_tools(allowed: list[str] | None, cfg: dict):
     }
     decls.append(types.FunctionDeclaration(
         name="delegate_task", description=_DELEGATE_DESCRIPTION, parameters_json_schema=delegate_params))
+    decls.append(types.FunctionDeclaration(
+        name=_CARD_SCHEMA["name"], description=_CARD_SCHEMA["description"],
+        parameters_json_schema=_CARD_SCHEMA["parameters"]))
+    decls.append(types.FunctionDeclaration(name=_PAUSE_SCHEMA["name"], description=_PAUSE_SCHEMA["description"]))
     return [types.Tool(function_declarations=decls)]
 
 
@@ -265,7 +413,25 @@ janelas, digitar e atalhos, midia e volume, clicar em elementos descritos na tel
 de um passo (abre o Spotify, volume 30, pausa) -> chame direto. Sequencia (abre o WhatsApp e manda
 "oi" pro Joao) -> encadeie as ferramentas voce mesmo, um passo por vez, ou delegue ao agente
 operador. Antes de mandar mensagem em nome do usuario, confirme o texto e o destinatario. Desligar,
-reiniciar e suspender sempre pedem confirmacao.""" + (
+reiniciar e suspender sempre pedem confirmacao.
+
+VIDA DO USUARIO: pra perguntas sobre o dia, prazos, tarefas, provas, clientes, habitos ou "o que eu
+faco agora", chame ler_dados_da_vida (le os bancos do Brain Office, rapido e sem depender de nada
+rodando) antes de responder.
+
+BRAIN OFFICE: o usuario tem um escritorio de agentes residentes, um por setor da vida (agenda,
+faculdade, pesquisa, projetos, clientes, pessoal, casa). Quando ele pedir pra falar com um setor,
+pedir algo que e trabalho de um setor (organizar a agenda, revisar a faculdade, follow-up de
+cliente), criar lembrete, ver o mural ou aprovar o que um agente pediu, use a ferramenta
+escritorio. Perguntas a um agente demoram: avise "vou passar pro setor X" antes.
+
+TELA: o usuario ve uma tela (o orb) enquanto fala com voce. Resultados de ferramentas de dados
+aparecem nela automaticamente como painel; quando montar uma resposta com listas, numeros,
+comparacoes ou passos, chame mostrar_na_tela e fale so o resumo ("coloquei na tela").
+
+PAUSA: se o usuario pedir pra voce esperar porque vai falar com outra pessoa, responda em no maximo
+3 palavras e chame pausar_conversa. Quando ele voltar (a conversa recomeca sozinha), retome de onde
+parou sem comentar a pausa, a menos que ele pergunte.""" + (
         "\n\nVoce tem acesso ao segundo cerebro do usuario (ferramentas mcp__current-brain__*: "
         "contexto, metas, conteudo, repos) e ao Planner Life (mcp__planner-life__*: colecoes e "
         "registros da vida dele). Quando a pergunta for sobre prioridades, metas, o que estudar ou o "
@@ -296,7 +462,9 @@ def _execute_tool(name: str, args: dict, cfg: dict) -> str:
             task=args.get("task", ""), agent_label=agent["label"], agent_description=agent["description"],
             groq_api_key=ctx["groq_api_key"], tavily_api_key=ctx["tavily_api_key"],
             gateway=ctx["omni_route"], session_id=ctx["session_id"],
-            allowed_skills=_mcp_tool_names() if agent["skills"] == "mcp" else agent["skills"])
+            allowed_skills=(_mcp_tool_names(include_hidden=True) + ["escritorio", "ler_dados_da_vida"])
+            if agent["skills"] == "mcp"
+            else agent["skills"])
     result, _ = skills_registry.execute_tool(name, args, ctx)
     return result
 
@@ -335,7 +503,55 @@ async def _session_main(cfg: dict, on_event):
     resume_handle = None
     end_after_drain = False
     mic_level = 0.0
+    last_mic_rms = 0.0
     last_level_emit = 0.0
+    _paused.clear()
+    pause_phrases = cfg.get("pause_phrases") or DEFAULT_PAUSE_PHRASES
+    wake_phrases = cfg.get("wake_phrases") or DEFAULT_WAKE_PHRASES
+    wake_aliases = {**DEFAULT_WAKE_ALIASES, **(cfg.get("wake_aliases") or {})}
+    pause_timeout = float(cfg.get("pause_timeout_min", DEFAULT_PAUSE_TIMEOUT_MIN)) * 60
+    spotter = None
+    paused_at = 0.0
+    live_session = None
+
+    def enter_pause(reason: str):
+        nonlocal paused_at
+        if _paused.is_set():
+            return
+        _paused.set()
+        paused_at = time.monotonic()
+        if speaker is not None:
+            speaker.clear()
+            speaker.write(_chime(up=False))
+            speaker.end_turn()
+        # Sem audio_stream_end aqui de proposito: medido em A/B, mandar o fim de stream ao pausar fazia
+        # o VAD do Gemini demorar ~9s pra responder o primeiro pedido depois da retomada (sem: ~4s).
+        if spotter is not None:
+            spotter.reset()
+        _log(f"PAUSA ({reason})")
+        set_status("paused", "diga: " + " / ".join(wake_phrases[:3]))
+        emit({"type": "live_pause", "paused": True, "reason": reason, "wake_phrases": wake_phrases})
+
+    def leave_pause(reason: str):
+        if not _paused.is_set():
+            return
+        _paused.clear()
+        if speaker is not None:
+            speaker.clear()
+            speaker.write(_chime(up=True))
+            speaker.end_turn()
+        _log(f"RETOMADA ({reason}) apos {time.monotonic() - paused_at:.0f}s")
+        set_status("listening")
+        emit({"type": "live_pause", "paused": False, "reason": reason})
+
+    _ctl["pause"], _ctl["resume"] = enter_pause, leave_pause
+
+    def is_pause_request(text: str) -> bool:
+        import wake_spotter
+        words = wake_spotter.normalize(text).split()
+        if not words or len(words) > PAUSE_MAX_WORDS:
+            return False
+        return any(wake_spotter.contains_phrase(text, ph, ratio=0.86) for ph in pause_phrases)
 
     def live_config():
         return types.LiveConnectConfig(
@@ -356,8 +572,10 @@ async def _session_main(cfg: dict, on_event):
         )
 
     async def pump_mic(session):
-        nonlocal mic_level, last_level_emit
+        nonlocal mic_level, last_level_emit, last_mic_rms
         silence = None
+        held = collections.deque(maxlen=BARGE_IN_CHUNKS)  # blocos altos retidos enquanto o modelo fala
+        streak = 0
         while True:
             try:
                 chunk = await loop.run_in_executor(None, mic_q.get, True, 0.2)
@@ -365,15 +583,44 @@ async def _session_main(cfg: dict, on_event):
                 continue
             samples = chunk.reshape(-1)
             rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+            last_mic_rms = rms
             mic_level = rms / 32768.0
-            if speaker.busy() and rms < barge_in_rms:
-                if silence is None or len(silence) != samples.nbytes:
-                    silence = b"\x00" * samples.nbytes
-                data = silence
-                mic_level = 0.0
+            if _paused.is_set():
+                # nada vai pro Gemini: a conversa com a outra pessoa fica so nesta maquina
+                if pause_timeout and time.monotonic() - paused_at > pause_timeout:
+                    _log("PAUSA expirou: encerrando a sessao")
+                    asyncio.get_running_loop().call_soon(_task.cancel)
+                    return
+                if spotter is not None:
+                    hit = await loop.run_in_executor(None, spotter.feed, samples.tobytes())
+                    if hit:
+                        leave_pause(f"frase '{hit}'")
+                now = time.monotonic()
+                if now - last_level_emit >= LEVEL_EVENT_INTERVAL:
+                    last_level_emit = now
+                    emit({"type": "live_level", "in": round(min(1.0, mic_level * 6), 3), "out": 0})
+                continue
+            out: list[bytes] = []
+            if speaker.busy():
+                streak = streak + 1 if rms >= barge_in_rms else 0
+                if streak >= BARGE_IN_CHUNKS:
+                    # fala sustentada por cima do modelo: manda tambem o que foi retido, senao o
+                    # comeco da interrupcao do usuario se perde
+                    out = [*held, samples.tobytes()]
+                    held.clear()
+                else:
+                    if rms >= barge_in_rms:
+                        held.append(samples.tobytes())
+                    if silence is None or len(silence) != samples.nbytes:
+                        silence = b"\x00" * samples.nbytes
+                    out = [silence]
+                    mic_level = 0.0
             else:
-                data = samples.tobytes()
-            await session.send_realtime_input(audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
+                streak = 0
+                held.clear()
+                out = [samples.tobytes()]
+            for data in out:
+                await session.send_realtime_input(audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))
             now = time.monotonic()
             if now - last_level_emit >= LEVEL_EVENT_INTERVAL:
                 last_level_emit = now
@@ -386,15 +633,25 @@ async def _session_main(cfg: dict, on_event):
         for fc in function_calls:
             args = dict(fc.args or {})
             emit({"type": "live_tool", "name": fc.name, "args": args, "phase": "start"})
-            set_status("working", fc.name)
+            if fc.name != "pausar_conversa" and not _paused.is_set():
+                set_status("working", fc.name)
             if fc.name == "end_conversation":
                 end_after_drain = True
-            try:
-                result = await loop.run_in_executor(None, _execute_tool, fc.name, args, cfg)
-                ok = True
-            except Exception as e:
-                result, ok = f"Erro: {e}", False
-            emit({"type": "live_tool", "name": fc.name, "phase": "end", "ok": ok, "result": (result or "")[:280]})
+            if fc.name == "mostrar_na_tela":
+                emit({"type": "live_card", "card": args})
+                result, ok = "Painel mostrado na tela do usuario.", True
+            elif fc.name == "pausar_conversa":
+                asyncio.create_task(_pause_after_drain())
+                result, ok = "Conversa em espera. Nao fale mais nada; ela volta quando o usuario disser a palavra de ativacao.", True
+            else:
+                try:
+                    result = await loop.run_in_executor(None, _execute_tool, fc.name, args, cfg)
+                    ok = True
+                except Exception as e:
+                    result, ok = f"Erro: {e}", False
+            # data = resultado completo, pro orb renderizar o painel da ferramenta (MCPs, vida, escritorio)
+            emit({"type": "live_tool", "name": fc.name, "phase": "end", "ok": ok, "args": args,
+                  "result": (result or "")[:280], "data": (result or "")[:60000]})
             responses.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": result or "ok"}))
         try:
             await session.send_tool_response(function_responses=responses)
@@ -410,6 +667,7 @@ async def _session_main(cfg: dict, on_event):
                 if msg.session_resumption_update and msg.session_resumption_update.new_handle:
                     resume_handle = msg.session_resumption_update.new_handle
                 if msg.go_away is not None:
+                    _log("GO_AWAY: servidor pediu renovacao da sessao")
                     return "reconnect"
                 if msg.tool_call and msg.tool_call.function_calls:
                     asyncio.create_task(run_tools(session, msg.tool_call.function_calls))
@@ -417,12 +675,19 @@ async def _session_main(cfg: dict, on_event):
                 if sc is None:
                     continue
                 if sc.interrupted:
+                    _log(f"INTERRUPTED mic_rms={last_mic_rms:.0f} limite={barge_in_rms:.0f} "
+                         f"falando={speaker.busy()} transcricao_usuario={user_buf[-60:]!r}")
                     speaker.clear()
                     emit({"type": "live_interrupted"})
                     set_status("listening")
-                if sc.input_transcription and sc.input_transcription.text:
+                if sc.input_transcription and sc.input_transcription.text and not _paused.is_set():
                     user_buf += sc.input_transcription.text
                     emit({"type": "live_transcript", "role": "user", "text": user_buf, "final": False})
+                    if is_pause_request(user_buf):
+                        enter_pause(f"frase '{user_buf.strip()[:40]}'")
+                        user_buf = ""
+                if _paused.is_set():
+                    continue  # resposta que ainda chegue do modelo nao toca durante a pausa
                 if sc.model_turn:
                     for part in sc.model_turn.parts or []:
                         if part.inline_data and part.inline_data.data:
@@ -435,7 +700,13 @@ async def _session_main(cfg: dict, on_event):
                         user_buf = ""
                     model_buf += sc.output_transcription.text
                     emit({"type": "live_transcript", "role": "assistant", "text": model_buf, "final": False})
+                if sc.generation_complete or sc.turn_complete:
+                    speaker.end_turn()  # toca o resto do buffer mesmo abaixo do pre-roll
                 if sc.turn_complete:
+                    if speaker.underruns or speaker.device_underruns:
+                        _log(f"TURNO buffer_vazio={speaker.underruns} falhas_dispositivo={speaker.device_underruns} "
+                             f"texto={model_buf[:60]!r}")
+                        speaker.underruns = speaker.device_underruns = 0
                     if model_buf:
                         emit({"type": "live_transcript", "role": "assistant", "text": model_buf, "final": True})
                     model_buf = ""
@@ -449,8 +720,20 @@ async def _session_main(cfg: dict, on_event):
     async def _settle_to_listening():
         while speaker.busy():
             await asyncio.sleep(0.05)
-        if _status == "speaking":
+        if _status == "speaking" and not _paused.is_set():
             set_status("listening")
+
+    async def _pause_after_drain():
+        # a frase de pausa costuma ja ter pausado pela transcricao; se a tool chega atrasada, depois
+        # do usuario ja ter voltado, pausar de novo seria errado
+        if paused_at and time.monotonic() - paused_at < 15:
+            return
+        # deixa o "claro, aguardo" terminar de tocar antes de fechar o ouvido
+        await asyncio.sleep(0.3)
+        deadline = time.monotonic() + 6
+        while speaker.busy() and time.monotonic() < deadline:
+            await asyncio.sleep(0.05)
+        enter_pause("pedido ao modelo")
 
     try:
         # abertos aqui dentro (e nao antes do try): cancelar ou falhar o dispositivo de audio
@@ -458,10 +741,18 @@ async def _session_main(cfg: dict, on_event):
         # "connecting" e o mic do passive_listener nunca e devolvido
         speaker = await loop.run_in_executor(None, _Speaker)
         mic_q = mic.subscribe(maxsize=100)
+        try:
+            import wake_spotter
+            spotter = await loop.run_in_executor(None, wake_spotter.WakeSpotter, wake_phrases, wake_aliases)
+        except Exception as e:
+            # sem Vosk a pausa ainda funciona; so a volta fica restrita ao botao/painel
+            _log(f"detector de ativacao indisponivel: {e!r}")
         while True:
             try:
                 async with client.aio.live.connect(model=model, config=live_config()) as session:
-                    set_status("listening")
+                    live_session = session
+                    _log(f"SESSAO model={model} voz={cfg.get('voice') or DEFAULT_VOICE} barge_in_rms={barge_in_rms:.0f}")
+                    set_status("paused" if _paused.is_set() else "listening")
                     emit({"type": "live_session", "model": model, "voice": cfg.get("voice") or DEFAULT_VOICE})
                     mic_task = asyncio.create_task(pump_mic(session))
                     try:
@@ -475,6 +766,7 @@ async def _session_main(cfg: dict, on_event):
                 raise
             except Exception as e:
                 print(f"[live_agent] sessao caiu: {e!r}", flush=True)
+                _log(f"SESSAO CAIU: {e!r}"[:300])
                 set_status("error", str(e)[:200])
                 if resume_handle is None:
                     break

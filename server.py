@@ -293,6 +293,16 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
                           "message": "modo teste — acao nao executada", "time": ts()})
         return
 
+    if gesture_key == "button1_single" and _live_running():
+        mod = _live_agent()
+        if mod.is_paused():
+            mod.resume("botao")
+        else:
+            mod.pause("botao")
+        await broadcast({"type": "gesture", "gesture": gesture_key, "label": "Pausa do Live (botao)",
+                          "raw": raw_hex, "time": ts(), "note": note})
+        return
+
     if gcfg.get("action") == "live_agent":
         if _live_running():
             await stop_live()
@@ -689,6 +699,8 @@ async def live_status():
     return {
         "running": _live_running(),
         "status": mod.status() if mod else "idle",
+        "paused": bool(mod and mod.is_paused()),
+        "wake_phrases": live_cfg.get("wake_phrases") or ["e aí óculos", "hey jarvis", "pode continuar", "sankofa"],
         "model": live_cfg.get("model") or "gemini-3.8-live",
         "voice": live_cfg.get("voice") or "Charon",
         "gateway": {"provider": gw.get("provider", "groq") if gw.get("enabled") else "groq",
@@ -703,6 +715,66 @@ async def live_start(body: dict | None = None):
         return JSONResponse({"ok": False, "error": "configure credentials.google_api_key"}, status_code=400)
     started = await start_live(body or {})
     return {"ok": True, "already_running": not started}
+
+
+@app.post("/api/live/pause")
+async def live_pause():
+    if not _live_running():
+        return JSONResponse({"ok": False, "error": "o Live nao esta ativo"}, status_code=409)
+    _live_agent().pause("painel")
+    return {"ok": True}
+
+
+@app.post("/api/live/resume")
+async def live_resume():
+    if not _live_running():
+        return JSONResponse({"ok": False, "error": "o Live nao esta ativo"}, status_code=409)
+    _live_agent().resume("painel")
+    return {"ok": True}
+
+
+def _record_and_transcribe(seconds: float) -> str:
+    import audio_capture
+    import queue as _queue
+    import wake_spotter
+    mic = audio_capture.get_capture_manager()
+    q = mic.subscribe(maxsize=400)
+    chunks, deadline = [], time.monotonic() + seconds
+    try:
+        while time.monotonic() < deadline:
+            try:
+                chunks.append(q.get(timeout=0.3).reshape(-1).tobytes())
+            except _queue.Empty:
+                pass
+    finally:
+        mic.unsubscribe(q)
+    return wake_spotter.transcribe(b"".join(chunks))
+
+
+@app.post("/api/live/wake/calibrate")
+async def wake_calibrate(body: dict):
+    """Grava ~3s do mic dos oculos com o usuario dizendo a frase e guarda "como o Vosk ouve" como
+    apelido dela -- e o que faz palavras fora do vocabulario (nomes, ingles) funcionarem."""
+    phrase = (body.get("phrase") or "").strip()
+    if not phrase:
+        return JSONResponse({"ok": False, "error": "frase vazia"}, status_code=400)
+    loop = asyncio.get_event_loop()
+    try:
+        heard = await loop.run_in_executor(None, _record_and_transcribe, float(body.get("seconds", 3)))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"falha na gravacao: {e}"}, status_code=500)
+    if not heard.strip():
+        return {"ok": False, "heard": "", "error": "nao ouvi nada; fale mais perto do microfone"}
+    import wake_spotter
+    live_cfg = state.config.setdefault("live", {})
+    aliases = live_cfg.setdefault("wake_aliases", {})
+    known = aliases.setdefault(phrase, [])
+    if wake_spotter.contains_phrase(heard, phrase):
+        return {"ok": True, "heard": heard, "added": False, "note": "ja reconhece essa frase do jeito que voce fala"}
+    if heard not in known:
+        known.append(heard)
+        save_config(state.config)
+    return {"ok": True, "heard": heard, "added": True, "aliases": known}
 
 
 @app.post("/api/live/stop")

@@ -74,7 +74,8 @@ def get_all_tools(allowed: list[str] | None = None) -> list[dict]:
     tools = [s["schema"] for s in _skills.values()]
     try:
         import mcp_client
-        tools += mcp_client.get_all_tool_schemas()
+        # lista explicita (perfil de agente) pode nomear tools MCP fora da allowlist da voz
+        tools += mcp_client.get_all_tool_schemas(include_hidden=allowed is not None)
     except Exception as e:
         print(f"[skills_registry] mcp_client indisponivel: {e}", flush=True)
     if allowed is not None:

@@ -18,6 +18,7 @@ _sessions: dict[str, object] = {}       # nome do servidor -> ClientSession cone
 _server_cms: dict[str, object] = {}     # nome do servidor -> context manager stdio (pro shutdown)
 _server_tools: dict[str, list[dict]] = {}  # nome do servidor -> [{"name", "description", "inputSchema"}]
 _server_all: dict[str, list[str]] = {}    # nome do servidor -> nomes de todas as tools (antes do filtro)
+_server_hidden: dict[str, list[dict]] = {} # tools fora da allowlist da voz -- so agentes as recebem
 _errors: dict[str, str] = {}               # nome do servidor -> ultimo erro de conexao
 _lock = threading.Lock()
 
@@ -72,12 +73,17 @@ async def _connect_server(name: str, command: str, args: list, env: dict | None,
              if (not include or t.name in include) and t.name not in (exclude or [])]
     _server_all[name] = [t.name for t in tools_result.tools]
     # SDK mcp >= 2 renomeou Tool.inputSchema -> input_schema; aceita os dois
-    _server_tools[name] = [
-        {"name": t.name, "description": t.description or "",
-         "inputSchema": getattr(t, "input_schema", None) or getattr(t, "inputSchema", None)
-                        or {"type": "object", "properties": {}}}
-        for t in tools
-    ]
+    def _entry(t):
+        return {"name": t.name, "description": t.description or "",
+                "inputSchema": getattr(t, "input_schema", None) or getattr(t, "inputSchema", None)
+                               or {"type": "object", "properties": {}}}
+
+    _server_tools[name] = [_entry(t) for t in tools]
+    visible = {t.name for t in tools}
+    # exclusoes nunca vao pra agente nenhum: os agentes de texto trabalham sem confirmar cada passo
+    _server_hidden[name] = [_entry(t) for t in tools_result.tools
+                            if t.name not in visible and not t.name.startswith("delete_")
+                            and t.name not in (exclude or [])]
     _errors.pop(name, None)
     print(f"[mcp_client] conectado a '{name}': {len(_server_tools[name])} ferramenta(s) — "
           f"{', '.join(t['name'] for t in _server_tools[name])}", flush=True)
@@ -106,13 +112,16 @@ def connect_configured_servers(servers: list[dict]):
             print(f"[mcp_client] falha ao conectar '{name}': {e!r}", flush=True)
 
 
-def get_all_tool_schemas() -> list[dict]:
+def get_all_tool_schemas(include_hidden: bool = False) -> list[dict]:
     """Ferramentas de todos os servidores MCP conectados, no formato OpenAI tools (mesmo
     formato dos skills locais — ver skills_registry.get_all_tools()). Nome prefixado
-    mcp__<servidor>__<ferramenta> pra nao colidir com skills locais nem entre servidores."""
+    mcp__<servidor>__<ferramenta> pra nao colidir com skills locais nem entre servidores.
+
+    include_hidden: inclui as tools fora da allowlist da voz (config.json > mcp_servers[].tools),
+    menos as de exclusao -- usado pelo agente Cerebro, que trabalha com o conjunto completo."""
     out = []
     for server_name, tools in _server_tools.items():
-        for t in tools:
+        for t in tools + (_server_hidden.get(server_name, []) if include_hidden else []):
             out.append({
                 "type": "function",
                 "function": {

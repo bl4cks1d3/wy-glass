@@ -152,6 +152,37 @@
       ], "Os óculos são open-ear — o alto-falante fica colado no microfone, por isso o gate anti-eco.");
       const up = (k, num) => (v, el) => { if ($(el.id + "V")) $(el.id + "V").textContent = v + (k === "silence_ms" ? " ms" : ""); set("live", { ...(cfg.live || {}), [k]: num ? Number(v) : v }); };
       bind("lvModel", up("model")); bind("lvVoice", up("voice")); bind("lvBarge", up("barge_in_rms", true)); bind("lvSil", up("silence_ms", true));
+
+      const lines = (v) => v.split("\n").map((x) => x.trim()).filter(Boolean);
+      group("Pausa", [
+        area("lvPause", "Frases que pausam", (l.pause_phrases || []).join("\n"), { sub: "Uma por linha. Dita sozinha (frase curta), o Jarvis para de ouvir na hora. Ele também entende pedidos livres como “espera que vou atender alguém”." }),
+        area("lvWake", "Frases que retomam", (l.wake_phrases || []).join("\n"), { sub: "Uma por linha, quantas quiser. Prefira 2+ palavras. Detectadas 100% no computador: durante a pausa nada vai pra nuvem." }),
+        range("lvPauseT", "Encerrar Live após pausa de", l.pause_timeout_min ?? 30, 5, 120, 5, " min"),
+        `<div class="row">${lbl("Botão 1 dos óculos", "Com o Live ativo, um clique pausa e outro retoma.")}<span class="val">clique simples</span></div>`,
+      ]);
+      bind("lvPause", (v) => set("live", { ...(cfg.live || {}), pause_phrases: lines(v) }));
+      bind("lvWake", (v) => { set("live", { ...(cfg.live || {}), wake_phrases: lines(v) }); renderCalib(); });
+      bind("lvPauseT", (v, el) => { $(el.id + "V").textContent = v + " min"; set("live", { ...(cfg.live || {}), pause_timeout_min: Number(v) }); });
+
+      body.insertAdjacentHTML("beforeend", `<div class="grp-title">Calibrar com a sua voz</div><div class="grp" id="calib"></div><div class="grp-foot">Nomes e palavras em inglês (“sankofa”, “jarvis”) podem não estar no vocabulário do reconhecedor local. Toque em Calibrar e fale a frase em até 3 segundos: o jeito que ele escuta você vira um apelido da frase.</div>`);
+      function renderCalib() {
+        const wl = (cfg.live && cfg.live.wake_phrases) || [];
+        const al = (cfg.live && cfg.live.wake_aliases) || {};
+        $("calib").innerHTML = wl.map((w, i) => `<div class="row">${lbl(esc(w), (al[w] || []).length ? "ouve como: " + esc(al[w].join(", ")) : "sem calibração")}<button class="pbtn" data-cal="${i}">Calibrar</button></div>`).join("") || `<div class="row">${lbl("Nenhuma frase de retomada")}</div>`;
+        $("calib").querySelectorAll("[data-cal]").forEach((b) => (b.onclick = async () => {
+          const phrase = wl[Number(b.dataset.cal)];
+          await flush();
+          b.disabled = true; b.textContent = "Fale agora…";
+          const r = await fetch("/api/live/wake/calibrate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ phrase }) }).then((x) => x.json()).catch(() => ({ ok: false, error: "sem resposta" }));
+          if (r.ok) {
+            cfg.live = cfg.live || {}; cfg.live.wake_aliases = cfg.live.wake_aliases || {};
+            if (r.aliases) cfg.live.wake_aliases[phrase] = r.aliases;
+            toast(r.added ? `Aprendi: “${r.heard}”` : (r.note || "Ok"));
+          } else toast(r.error || "Falhou");
+          renderCalib();
+        }));
+      }
+      renderCalib();
     },
 
     agentes() {
@@ -248,17 +279,18 @@
         group(st.name, [
           `<div class="row">${lbl(esc(sc.description || sc.command), st.error ? `<span style="color:var(--red)">${esc(st.error)}</span>` : "")}${badge}</div>`,
           toggle(`ms_${i}`, "Ativo", sc.enabled !== false),
-          toolRows.length ? `<div class="row col"><details class="adv"><summary>Ferramentas expostas ao Jarvis</summary><div class="grp" style="margin-top:8px">${toolRows.join("")}</div></details></div>` : "",
+          toolRows.length ? `<div class="row col"><details class="adv"><summary>Ferramentas na voz do Jarvis</summary><div class="grp" style="margin-top:8px">${toolRows.join("")}</div></details></div>` : "",
         ].filter(Boolean));
         bind(`ms_${i}`, (v) => { sc.enabled = v; set("mcp_servers", servers); });
         st.all_tools.forEach((t) => bind(`mt_${i}_${t}`, () => {
           const on = st.all_tools.filter((x) => $(`mt_${i}_${x}`).checked);
-          sc.tools = on.length === st.all_tools.length ? undefined : on;
+          // sempre lista explicita: "sem filtro" faria qualquer tool nova do servidor entrar na voz
+          sc.tools = on;
           set("mcp_servers", servers);
         }));
       });
       group("", [`<div class="row">${lbl("Aplicar mudanças", "Reconecta os servidores com a config atual. Vale na próxima sessão Live.")}<button class="pbtn primary" id="mcpRe">Reconectar</button></div>`],
-        "Poucas tools por servidor = voz mais rápida e certeira. Para trabalho pesado, o Jarvis delega ao agente Cérebro.");
+        "As marcadas vão direto pra voz (poucas = voz mais rápida e certeira). O agente Cérebro recebe todas as tools dos servidores, menos as de exclusão.");
       $("mcpRe").onclick = async (e) => {
         e.target.textContent = "Reconectando…"; await flush();
         await fetch("/api/mcp/reconnect", { method: "POST" });

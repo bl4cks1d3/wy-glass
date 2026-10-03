@@ -94,7 +94,34 @@
     "model": "gemini-3.8-live",
     "voice": "Charon",
     "barge_in_rms": 2500,
-    "silence_ms": 600
+    "silence_ms": 600,
+    "pause_phrases": [
+      "espera um minutinho",
+      "espera um pouco",
+      "espera um minuto",
+      "só um minuto",
+      "só um minutinho",
+      "um momento",
+      "só um momento",
+      "pausa",
+      "aguarda",
+      "segura aí",
+      "já volto",
+      "me dá um minuto"
+    ],
+    "wake_phrases": [
+      "e aí óculos",
+      "hey jarvis",
+      "pode continuar",
+      "sankofa"
+    ],
+    "wake_aliases": {
+      "hey jarvis": [
+        "em chaves",
+        "ei jarvis"
+      ]
+    },
+    "pause_timeout_min": 30
   },
   "nine_router": {
     "enabled": false,
@@ -142,17 +169,17 @@
   "mcp_servers": [
     {
       "name": "current-brain",
-      "description": "Segundo cérebro: contexto, metas, trilhas, conteúdo analisado, repos e criadores",
+      "description": "Segundo cérebro do Brain Office: contexto, metas, trilhas, conteúdo, repos e criadores",
       "enabled": true,
       "command": "node",
       "args": [
         "--no-warnings",
         "--import",
-        "file:///CAMINHO/PARA/currentBrain/node_modules/tsx/dist/loader.mjs",
-        "CAMINHO/PARA/currentBrain/apps/mcp/src/index.ts"
+        "file:///CAMINHO/PARA/brain-agents/node_modules/tsx/dist/loader.mjs",
+        "CAMINHO/PARA/brain-agents/services/brain/apps/mcp/src/index.ts"
       ],
       "env": {
-        "MCB_DB_PATH": "CAMINHO/PARA/currentBrain/data/brain.db",
+        "MCB_DB_PATH": "CAMINHO/PARA/brain-agents/data/brain/brain.db",
         "MCB_AGENT": "wy-glass"
       },
       "connect_timeout": 60,
@@ -170,15 +197,16 @@
         "list_milestones",
         "suggest_project",
         "record_feedback"
-      ]
+      ],
+      "cwd": "CAMINHO/PARA/brain-agents/services/brain"
     },
     {
       "name": "planner-life",
-      "description": "Planner Life: coleções, registros e automações (precisa do Planner Core em :4000)",
+      "description": "Planner Life do Brain Office: coleções, registros e automações (escrita precisa do Planner Core em :4000, que o Brain Office sobe)",
       "enabled": true,
       "command": "node",
       "args": [
-        "CAMINHO/PARA/planner/packages/mcp/dist/index.js"
+        "CAMINHO/PARA/brain-agents/services/planner/packages/mcp/dist/index.js"
       ],
       "env": {
         "PLANNER_CORE_URL": "http://localhost:4000",
@@ -192,5 +220,10 @@
         "automation_runs"
       ]
     }
-  ]
+  ],
+  "brain_office": {
+    "repo_dir": "CAMINHO/PARA/brain-agents",
+    "planner_db": "CAMINHO/PARA/brain-agents/data/planner/planner.db",
+    "brain_db": "CAMINHO/PARA/brain-agents/data/brain/brain.db"
+  }
 }

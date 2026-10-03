@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "mcp__current-brain__(save_content_analysis|ignore_content|write_lesson|add_learning_resources|add_milestones|add_discovered_content|publish_brief)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/validate-brain.mjs",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

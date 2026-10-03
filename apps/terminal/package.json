@@ -1,0 +1,16 @@
+{
+  "name": "@mcb/terminal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --no-warnings --import tsx src/index.ts"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "ws": "^8.21.3"
+  }
+}

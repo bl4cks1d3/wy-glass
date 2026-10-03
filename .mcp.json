@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "current-brain": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["--no-warnings", "--import", "tsx", "apps/mcp/src/index.ts"]
+    }
+  }
+}

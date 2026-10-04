@@ -7,6 +7,7 @@
 <link rel="icon" href="/static/icon.png">
 <link rel="stylesheet" href="/static/orb-panel.css">
 <link rel="stylesheet" href="/static/orb-cards.css">
+<link rel="stylesheet" href="/static/orb-central.css">
 <style>
 :root {
   --bg: #050507;
@@ -185,6 +186,9 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
   <button class="btn-icon" id="pauseBtn" title="Pausar (botão 1 dos óculos)" aria-label="Pausar conversa" hidden>
     <svg id="pauseIco" viewBox="0 0 24 24" fill="currentColor"><rect x="6.5" y="5" width="4" height="14" rx="1.3"/><rect x="13.5" y="5" width="4" height="14" rx="1.3"/></svg>
   </button>
+  <button class="btn-icon" id="centralBtn" title="Central (Ctrl+K)" aria-label="Abrir a Central">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
+  </button>
   <button class="btn-icon" id="panelBtn" title="Ajustes" aria-label="Abrir painel de ajustes">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
   </button>
@@ -266,7 +270,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
     set_persona: "Trocando persona", end_conversation: "Encerrando", delegate_task: "Delegando",
     pc_apps: "Apps", pc_window: "Janelas", pc_keyboard: "Teclado", pc_media: "Mídia",
     pc_click: "Mouse", pc_system: "Sistema",
-    ler_dados_da_vida: "Lendo sua vida", escritorio: "Escritório", mostrar_na_tela: "Na tela",
+    ler_dados_da_vida: "Lendo sua vida", escritorio: "Escritório", mostrar_na_tela: "Na tela", abrir_central: "Central",
   };
   const toolLabel = (n) => TOOL_LABELS[n] || n.replace(/^mcp__[^_]+__/, "").replace(/_/g, " ");
   function buildSatellites(agents, skills) {
@@ -494,6 +498,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
         }
         break;
       case "live_card": window.wyCards && window.wyCards.fromAgent(m.card); break;
+      case "live_central": window.wyCentral && window.wyCentral.open(m.section, m.agent); break;
       case "gesture": if (m.label) toast(m.label); break;
     }
   }
@@ -538,6 +543,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
   $("liveBtn").onclick = toggleLive;
   $("sheetBtn").onclick = () => $("sheet").classList.toggle("open");
   $("panelBtn").onclick = () => window.wyPanel && window.wyPanel.open();
+  $("centralBtn").onclick = () => window.wyCentral && window.wyCentral.open("hoje");
   $("pauseBtn").onclick = async () => {
     const r = await fetch(S.status === "paused" ? "/api/live/resume" : "/api/live/pause", { method: "POST" }).catch(() => null);
     if (r && !r.ok) toast((await r.json().catch(() => ({}))).error || "falha");
@@ -552,5 +558,6 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
 </script>
 <script src="/static/orb-panel.js"></script>
 <script src="/static/orb-cards.js"></script>
+<script src="/static/orb-central.js"></script>
 </body>
 </html>

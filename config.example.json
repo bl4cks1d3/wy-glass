@@ -121,7 +121,8 @@
         "ei jarvis"
       ]
     },
-    "pause_timeout_min": 30
+    "pause_timeout_min": 30,
+    "confirm_actions": true
   },
   "nine_router": {
     "enabled": false,

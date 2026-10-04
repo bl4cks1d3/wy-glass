@@ -96,6 +96,18 @@ def _send(method: str, path: str, body: dict | None = None):
     return r.json()
 
 
+def call(method: str, path: str, body: dict | None = None, params: dict | None = None):
+    """Repasse cru pra /api/brain (usado pelo proxy /api/office do servidor): devolve
+    (status_http, json). O token do escritorio fica aqui no servidor, nunca vai pro navegador."""
+    r = requests.request(method, f"{base_url()}/api/brain{path}", headers=_headers(),
+                         json=body if method != "GET" else None, params=params, timeout=30)
+    try:
+        data = r.json()
+    except ValueError:
+        data = {"error": r.text[:300]}
+    return r.status_code, data
+
+
 def is_up() -> bool:
     try:
         return requests.get(f"{base_url()}/api/health", timeout=1.5).ok

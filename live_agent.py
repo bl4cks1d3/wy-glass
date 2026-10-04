@@ -163,6 +163,22 @@ _PAUSE_SCHEMA = {
     "parameters": {"type": "object", "properties": {}},
 }
 
+CENTRAL_SECTIONS = ["hoje", "agenda", "faculdade", "clientes", "projetos", "pesquisa", "vida", "agentes", "mural"]
+_CENTRAL_SCHEMA = {
+    "name": "abrir_central",
+    "description": (
+        "Abre a Central na tela do usuario (o orb) numa area do Brain Office: hoje, agenda, faculdade, "
+        "clientes, projetos, pesquisa, vida (habitos e notas), agentes (conversar com os setores) ou "
+        "mural. Use quando ele pedir pra ver/abrir/mostrar uma dessas areas, ou 'abre a central'. "
+        "Pedido pra CONVERSAR/FALAR com um setor ou agente (ex: 'quero falar com o setor de faculdade') "
+        "e secao=agentes com agente=<setor>, nao a area de dados do setor. Use 'fechar' pra fechar."
+    ),
+    "parameters": {"type": "object", "properties": {
+        "secao": {"type": "string", "enum": CENTRAL_SECTIONS + ["fechar"]},
+        "agente": {"type": "string", "description": "em secao=agentes, o setor a abrir (ex: agenda, clientes)"},
+    }, "required": ["secao"]},
+}
+
 _paused = threading.Event()
 _ctl: dict = {}  # pause/resume da sessao ativa (rodam no event loop deste modulo)
 
@@ -392,7 +408,21 @@ def _build_tools(allowed: list[str] | None, cfg: dict):
         name=_CARD_SCHEMA["name"], description=_CARD_SCHEMA["description"],
         parameters_json_schema=_CARD_SCHEMA["parameters"]))
     decls.append(types.FunctionDeclaration(name=_PAUSE_SCHEMA["name"], description=_PAUSE_SCHEMA["description"]))
+    decls.append(types.FunctionDeclaration(name=_CENTRAL_SCHEMA["name"], description=_CENTRAL_SCHEMA["description"],
+                                           parameters_json_schema=_CENTRAL_SCHEMA["parameters"]))
     return [types.Tool(function_declarations=decls)]
+
+
+def _confirm_rule(cfg: dict) -> str:
+    """config.json > live.confirm_actions (padrao true). Desligado, o Jarvis age direto: manda a
+    mensagem, desliga/reinicia o PC e aprova pedidos dos agentes sem esperar o "sim" falado."""
+    if cfg.get("confirm_actions", True):
+        return ("Antes de mandar mensagem em nome do usuario, confirme o texto e o destinatario. Desligar, "
+                "reiniciar e suspender sempre pedem confirmacao. Aprovar ou negar pedidos dos agentes do "
+                "escritorio so depois do usuario dizer explicitamente.")
+    return ("O usuario dispensou confirmacoes: execute direto o que ele pedir, inclusive mandar mensagens, "
+            "desligar/reiniciar/suspender o PC (com confirmed=true) e aprovar ou negar pedidos dos agentes, "
+            "e diga em poucas palavras o que fez.")
 
 
 def _system_prompt(cfg: dict) -> str:
@@ -412,8 +442,7 @@ CONTROLE DO PC: voce controla o computador do usuario (ferramentas pc_*): abrir/
 janelas, digitar e atalhos, midia e volume, clicar em elementos descritos na tela e sistema. Pedido
 de um passo (abre o Spotify, volume 30, pausa) -> chame direto. Sequencia (abre o WhatsApp e manda
 "oi" pro Joao) -> encadeie as ferramentas voce mesmo, um passo por vez, ou delegue ao agente
-operador. Antes de mandar mensagem em nome do usuario, confirme o texto e o destinatario. Desligar,
-reiniciar e suspender sempre pedem confirmacao.
+operador. <<CONFIRM_RULE>>
 
 VIDA DO USUARIO: pra perguntas sobre o dia, prazos, tarefas, provas, clientes, habitos ou "o que eu
 faco agora", chame ler_dados_da_vida (le os bancos do Brain Office, rapido e sem depender de nada
@@ -427,11 +456,13 @@ escritorio. Perguntas a um agente demoram: avise "vou passar pro setor X" antes.
 
 TELA: o usuario ve uma tela (o orb) enquanto fala com voce. Resultados de ferramentas de dados
 aparecem nela automaticamente como painel; quando montar uma resposta com listas, numeros,
-comparacoes ou passos, chame mostrar_na_tela e fale so o resumo ("coloquei na tela").
+comparacoes ou passos, chame mostrar_na_tela e fale so o resumo ("coloquei na tela"). A CENTRAL
+(abrir_central) mostra as areas completas do Brain Office (hoje, agenda, faculdade, clientes,
+projetos, pesquisa, vida, agentes, mural): abra quando ele quiser ver uma area inteira.
 
 PAUSA: se o usuario pedir pra voce esperar porque vai falar com outra pessoa, responda em no maximo
 3 palavras e chame pausar_conversa. Quando ele voltar (a conversa recomeca sozinha), retome de onde
-parou sem comentar a pausa, a menos que ele pergunte.""" + (
+parou sem comentar a pausa, a menos que ele pergunte.""".replace("<<CONFIRM_RULE>>", _confirm_rule(cfg)) + (
         "\n\nVoce tem acesso ao segundo cerebro do usuario (ferramentas mcp__current-brain__*: "
         "contexto, metas, conteudo, repos) e ao Planner Life (mcp__planner-life__*: colecoes e "
         "registros da vida dele). Quando a pergunta for sobre prioridades, metas, o que estudar ou o "
@@ -640,6 +671,10 @@ async def _session_main(cfg: dict, on_event):
             if fc.name == "mostrar_na_tela":
                 emit({"type": "live_card", "card": args})
                 result, ok = "Painel mostrado na tela do usuario.", True
+            elif fc.name == "abrir_central":
+                emit({"type": "live_central", "section": args.get("secao", "hoje"), "agent": args.get("agente")})
+                result, ok = ("Central fechada." if args.get("secao") == "fechar"
+                              else f"Central aberta em {args.get('secao', 'hoje')} na tela do usuario."), True
             elif fc.name == "pausar_conversa":
                 asyncio.create_task(_pause_after_drain())
                 result, ok = "Conversa em espera. Nao fale mais nada; ela volta quando o usuario disser a palavra de ativacao.", True

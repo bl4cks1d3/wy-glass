@@ -13,7 +13,7 @@ SCHEMA = {
             "lembretes (o personagem do setor avisa o usuario na hora) e pedidos de aprovacao dos "
             "agentes. Se o escritorio estiver desligado, use action=ligar (ele tambem sobe o "
             "Planner Core). Perguntar a um agente pode levar de 10s a 2min: avise o usuario antes. "
-            "Aprovar/negar so depois do usuario dizer explicitamente."
+            "Aprovar/negar segue a regra de confirmacao do prompt."
         ),
         "parameters": {
             "type": "object",

@@ -6,7 +6,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 import uvicorn
 
@@ -781,6 +781,52 @@ async def wake_calibrate(body: dict):
 async def live_stop():
     await stop_live()
     return {"ok": True}
+
+
+# Central do orb (static/orb-central.js): as areas do Brain Office dentro do oculos. So estas rotas
+# passam -- mexer em configuracao, servicos ou permissoes do escritorio continua so no painel dele.
+_OFFICE_ALLOWED = (
+    ("GET", r"^/hoje$"), ("GET", r"^/local/planner$"), ("GET", r"^/local/brain/[a-z]+$"),
+    ("GET", r"^/local/notes$"), ("GET", r"^/local/note$"), ("GET", r"^/agents$"),
+    ("GET", r"^/agents/[a-z0-9-]+/chat$"), ("GET", r"^/board$"), ("GET", r"^/reminders$"),
+    ("GET", r"^/briefs$"), ("GET", r"^/permissions$"),
+    ("POST", r"^/local/planner/(tasks|habits|clients|projects|topics)$"),
+    ("PATCH", r"^/local/planner/(tasks|habits|clients|projects|topics|messages)/[A-Za-z0-9@._-]+$"),
+    ("POST", r"^/agents/[a-z0-9-]+/messages$"), ("POST", r"^/route$"), ("POST", r"^/reminders$"),
+    ("POST", r"^/local/brain/(state|step|milestone|feedback)/[A-Za-z0-9-]+$"),
+)
+
+
+@app.api_route("/api/office/{path:path}", methods=["GET", "POST", "PATCH"])
+async def office_proxy(path: str, request: Request):
+    import re
+    import brain_office
+    sub = "/" + path
+    if not any(m == request.method and re.match(rx, sub) for m, rx in _OFFICE_ALLOWED):
+        return JSONResponse({"error": f"rota nao liberada pra central: {request.method} {sub}"}, status_code=403)
+    loop = asyncio.get_event_loop()
+    if not await loop.run_in_executor(None, brain_office.is_up):
+        return JSONResponse({"error": "Brain Office desligado", "down": True}, status_code=503)
+    body = None
+    if request.method != "GET":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    params = dict(request.query_params)
+    try:
+        status, data = await loop.run_in_executor(
+            None, lambda: brain_office.call(request.method, sub, body, params))
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    return JSONResponse(data, status_code=status)
+
+
+@app.post("/api/office-start")
+async def office_start():
+    import brain_office
+    loop = asyncio.get_event_loop()
+    return {"message": await loop.run_in_executor(None, brain_office.start)}
 
 
 @app.get("/api/gateway/health")

@@ -3,9 +3,7 @@
   "configurations": [
     {
       "name": "wy-glass",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["server.py"],
-      "port": 8731
+      "url": "http://localhost:8731"
     }
   ]
 }

@@ -2,8 +2,8 @@
 config.json
 
 # Dados pessoais gerados em uso
-recordings/
-screenshots/
+/recordings/
+/screenshots/
 voice_profile.npy
 
 # Python
@@ -42,7 +42,7 @@ android-app/app/libs/*.aar
 .claude/scheduled_tasks.lock
 live_agent.log
 brain_office.log
-models/
+/models/
 
 # Node (servicos em services/)
 node_modules/
@@ -50,6 +50,7 @@ services/**/dist/
 *.tsbuildinfo
 
 # Dados do escritorio, Planner e Current Brain (bancos, vault) e segredos
-data/
+/data/
 .env
 office.log
+office.err.log

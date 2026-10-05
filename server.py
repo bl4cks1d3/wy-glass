@@ -251,6 +251,14 @@ def _on_live_event(payload: dict):
     """Chamado da thread do live_agent — repassa pro event loop principal."""
     if payload.get("type") == "live_state" and payload.get("status") == "idle":
         _passive_listener().resume()
+    if payload.get("type") == "live_pause":
+        # Na pausa do Live o "hey jarvis" do openWakeWord (o mesmo da escuta passiva, que ja funciona
+        # com o mic Bluetooth dos oculos) volta a escutar -- e o disparo retoma o Live (fire_gesture).
+        # Fora da pausa ele fica desligado: o Live ja esta ouvindo tudo.
+        if payload.get("paused"):
+            _passive_listener().resume()
+        else:
+            _passive_listener().pause()
     asyncio.run_coroutine_threadsafe(broadcast(payload), state.loop)
 
 
@@ -314,6 +322,12 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
         await broadcast({"type": "gesture", "gesture": gesture_key, "label": "Pausa do Live (botao)",
                           "raw": raw_hex, "time": ts(), "note": note})
         return
+
+    if _live_running() and raw_hex == "(escuta passiva)":
+        mod = _live_agent()
+        if mod.is_paused():
+            mod.resume("hey jarvis (openWakeWord)")
+        return  # Live ativo: a escuta passiva so serve pra sair da pausa
 
     if _live_running() and gcfg.get("action") in _PIPER_ACTIONS:
         # usam o Piper e o mic por conta propria: rodar durante o Live = duas vozes ao mesmo tempo

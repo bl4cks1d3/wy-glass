@@ -48,6 +48,7 @@ DEFAULT_BARGE_IN_RMS = 2500
 # era o usuario interrompendo. So libera o mic com N blocos seguidos (30 ms cada) acima do limite.
 BARGE_IN_CHUNKS = 3
 LEVEL_EVENT_INTERVAL = 1 / 15
+KEEPALIVE_S = 20.0  # silencio enviado na pausa pra sessao nao expirar por inatividade
 MAX_RECONNECT_FAILS = 8  # ~3 min de tentativas com espera crescente, depois desiste e avisa
 LOG_PATH = Path(__file__).parent / "live_agent.log"
 
@@ -636,6 +637,7 @@ async def _session_main(cfg: dict, on_event):
         silence = None
         held = collections.deque(maxlen=BARGE_IN_CHUNKS)  # blocos altos retidos enquanto o modelo fala
         streak = 0
+        last_keepalive, last_heard, last_heard_log = 0.0, "", 0.0
         while True:
             try:
                 chunk = await loop.run_in_executor(None, mic_q.get, True, 0.2)
@@ -646,7 +648,19 @@ async def _session_main(cfg: dict, on_event):
             last_mic_rms = rms
             mic_level = rms / 32768.0
             if _paused.is_set():
-                # nada vai pro Gemini: a conversa com a outra pessoa fica so nesta maquina
+                # nada vai pro Gemini: a conversa com a outra pessoa fica so nesta maquina. So um bloco
+                # de SILENCIO a cada KEEPALIVE_S: sem nenhuma entrada o Gemini derrubava a sessao em
+                # ~2,5 min ("1008 operation was aborted")
+                now = time.monotonic()
+                if now - last_keepalive >= KEEPALIVE_S:
+                    last_keepalive = now
+                    if silence is None or len(silence) != samples.nbytes:
+                        silence = b"\x00" * samples.nbytes
+                    await session.send_realtime_input(audio=types.Blob(data=silence, mime_type=f"audio/pcm;rate={IN_RATE}"))
+                if spotter is not None and spotter.last_text and spotter.last_text != last_heard and now - last_heard_log >= 3:
+                    # diagnostico local (so neste arquivo): o que o detector Vosk entendeu do mic dos oculos
+                    last_heard, last_heard_log = spotter.last_text, now
+                    _log(f"PAUSA ouviu (local): {last_heard[:60]!r}")
                 if pause_timeout and time.monotonic() - paused_at > pause_timeout:
                     _log("PAUSA expirou: encerrando a sessao")
                     asyncio.get_running_loop().call_soon(_task.cancel)

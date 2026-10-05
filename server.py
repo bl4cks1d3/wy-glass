@@ -571,6 +571,8 @@ async def battery_monitor():
 @app.on_event("startup")
 async def startup():
     state.loop = asyncio.get_event_loop()
+    import office_notifier
+    office_notifier.start(_on_office_nudge)
     state.ble_task = asyncio.create_task(ble_manager())
     asyncio.create_task(groq_model_healthcheck())
     asyncio.create_task(battery_monitor())
@@ -852,6 +854,67 @@ async def office_proxy(path: str, request: Request):
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     return JSONResponse(data, status_code=status)
+
+
+@app.get("/api/google")
+async def google_snapshot(days: int = 7):
+    """Google Agenda + Google Tasks pela conta conectada no Planner Core, com erro legivel (ex.:
+    autorizacao expirada) em vez de lista vazia."""
+    import google_bridge
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, google_bridge.snapshot, days)
+
+
+@app.post("/api/google/reconnect")
+async def google_reconnect():
+    import google_bridge
+    loop = asyncio.get_event_loop()
+    return {"message": await loop.run_in_executor(None, google_bridge.open_reconnect)}
+
+
+# ---- notificacoes do Brain Office (lembretes, "tarefa atrasada", avisos dos agentes) ----
+_nudge_seen: dict[str, float] = {}
+
+
+def _in_quiet_hours(ncfg: dict) -> bool:
+    start, end = ncfg.get("quiet_start", "22:00"), ncfg.get("quiet_end", "07:00")
+    now = datetime.now().strftime("%H:%M")
+    return (now >= start or now < end) if start > end else (start <= now < end)
+
+
+def _on_office_nudge(text: str, agent: str):
+    """Chamado da thread do office_notifier."""
+    if state.loop is not None and text:
+        asyncio.run_coroutine_threadsafe(handle_office_nudge(text, agent), state.loop)
+
+
+async def handle_office_nudge(text: str, agent: str):
+    ncfg = state.config.get("notifications") or {}
+    await broadcast({"type": "office_nudge", "text": text, "agent": agent, "time": ts()})
+    if not ncfg.get("voice", True):
+        return
+    key = " ".join(text.lower().split())
+    now = time.time()
+    # os lembretes do escritorio se repetem a cada ciclo ("Tarefa atrasada: X" toda hora): na tela
+    # aparecem sempre, na voz so a cada repeat_min
+    if now - _nudge_seen.get(key, 0) < float(ncfg.get("repeat_min", 180)) * 60 or _in_quiet_hours(ncfg):
+        return
+    if _live_running():
+        mod = _live_agent()
+        if mod.is_paused():
+            return  # usuario conversando com outra pessoa: nao interrompe nem marca como dito
+        _nudge_seen[key] = now
+        mod.announce(text)
+        return
+    if state.config.get("actions_enabled") and state.connected:
+        _nudge_seen[key] = now
+        gcfg = state.config.get("gestures", {}).get("button1_single", {}).get("params", {})
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, _speak_blocking, f"Lembrete: {text}",
+                                       gcfg.get("tts_model", "pt_BR-faber-medium.onnx"))
+        except Exception as e:
+            print(f"[office_nudge] erro ao falar: {e}", flush=True)
 
 
 @app.post("/api/office-start")

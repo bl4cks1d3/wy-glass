@@ -226,5 +226,11 @@
     "repo_dir": "",
     "planner_db": "{office}/data/planner/planner.db",
     "brain_db": "{office}/data/brain/brain.db"
+  },
+  "notifications": {
+    "voice": true,
+    "repeat_min": 180,
+    "quiet_start": "22:00",
+    "quiet_end": "07:00"
   }
 }

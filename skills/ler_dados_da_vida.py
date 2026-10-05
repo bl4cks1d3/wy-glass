@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 _AREAS = {
-    "agenda": ["agora", "tarefasPendentes"],
+    "agenda": ["agora", "tarefasPendentes", "google"],
     "faculdade": ["agora", "faculdade"],
     "clientes": ["agora", "clientes", "inboxSemTratar"],
     "projetos": ["agora", "projetos", "tarefasPendentes"],
@@ -26,7 +26,8 @@ SCHEMA = {
         "description": (
             "Retrato da vida do usuario lido direto dos bancos do Brain Office: tarefas pendentes, "
             "projetos, clientes, faculdade (disciplinas, provas, entregas), habitos, inbox e o "
-            "resumo do Current Brain (brief do dia, itens prioritarios, estudos). Use pra qualquer "
+            "resumo do Current Brain (brief do dia, itens prioritarios, estudos), mais os eventos do "
+            "Google Agenda (7 dias) e as tarefas do Google Tasks. Use pra qualquer "
             "pergunta sobre o dia, prazos, compromissos, o que fazer agora ou como estao as coisas. "
             "So leitura: pra criar/alterar algo use o Planner Life."
         ),
@@ -133,6 +134,18 @@ def execute(args: dict, ctx: dict) -> tuple[str, bool]:
     else:
         data["currentBrain"] = _brain(bdb)
         bdb.close()
+    try:
+        import google_bridge
+        g = google_bridge.snapshot(days=7)
+        data["google"] = {
+            "eventos7dias": [{"titulo": e.get("title"), "inicio": e.get("start"), "local": e.get("location"),
+                              "agenda": e.get("calendarName")} for e in g["events"][:30]],
+            "tarefasGoogle": [{"titulo": t.get("title"), "prazo": t.get("due"), "notas": (t.get("notes") or "")[:120]}
+                              for t in g["tasks"][:30]],
+            "erros": g["errors"],
+        }
+    except Exception as e:
+        data["google"] = {"erros": [f"Google indisponivel: {e}"]}
     area = args.get("area")
     if area in _AREAS:
         data = {k: data.get(k) for k in _AREAS[area]}

@@ -105,18 +105,50 @@
   /* ---------------- areas ---------------- */
   const VIEWS = {
     async hoje() {
-      const { hoje } = await api('/hoje?refresh=1');
+      const [{ hoje }, google] = await Promise.all([
+        api('/hoje?refresh=1'),
+        fetch('/api/google?days=1')
+          .then((r) => r.json())
+          .catch(() => ({ events: [], tasks: [], errors: [] })),
+      ]);
+      // o "Hoje" do escritorio fica sem eventos (sem aviso) quando o token do Google expira: usa os
+      // eventos e o erro reais do /api/google
+      if ((google.events || []).length) hoje.planner.events = google.events;
       const r = window.wyCards._render.hoje(hoje);
+      const u = U();
       head('Hoje', r.sub);
-      body.innerHTML = r.html;
+      const banner = (google.errors || []).length
+        ? `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google Agenda e Tasks</div><div class="d">${u.esc(google.errors.join(' '))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`
+        : '';
+      const gt = (google.tasks || []).filter((t) => t.due && daysUntil(t.due) <= 0);
+      body.innerHTML =
+        banner +
+        r.html +
+        (gt.length
+          ? u.sec(
+              'Google Tasks para hoje',
+              u.grp(gt.map((t) => u.row({ t: t.title, when: 'prazo ' + u.fmtDate(t.due) }))),
+            )
+          : '');
+      if ($('ctGReconnect'))
+        $('ctGReconnect').onclick = async () => {
+          const x = await fetch('/api/google/reconnect', { method: 'POST' })
+            .then((y) => y.json())
+            .catch(() => ({}));
+          toast(x.message || 'Abri o navegador pra reconectar');
+        };
     },
 
     async agenda() {
       const u = U();
-      const [pl, { hoje }, { reminders }] = await Promise.all([
+      // Google vem direto do servidor do oculos (/api/google -> Planner Core), com o erro real: a
+      // rota que o "Hoje" do escritorio usa devolvia lista vazia quando o token expirava
+      const [pl, { reminders }, google] = await Promise.all([
         api('/local/planner'),
-        api('/hoje'),
         api('/reminders'),
+        fetch('/api/google')
+          .then((r) => r.json())
+          .catch(() => ({ events: [], tasks: [], errors: ['Servidor do óculos sem resposta'] })),
       ]);
       const pend = (pl.tasks || []).filter((t) => t.status !== 'done' && t.status !== 'cancelled');
       const done = (pl.tasks || []).filter((t) => t.status === 'done').slice(0, 5);
@@ -132,8 +164,13 @@
           `data-task="${t.id}"`,
           isDone,
         );
-      const events = hoje.planner.events || [];
+      const events = google.events || [];
+      const gtasks = google.tasks || [];
+      const gErr = (google.errors || []).length
+        ? `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google</div><div class="d">${u.esc(google.errors.join(' '))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`
+        : '';
       body.innerHTML =
+        gErr +
         `<div class="ct-add"><input id="ctTask" placeholder="Nova tarefa…" maxlength="200"><input id="ctTaskDate" type="date"><button class="ct-btn primary" id="ctTaskAdd">Adicionar</button></div>` +
         `<div class="ct-cols"><div>${u.sec(
           'Pendentes',
@@ -153,7 +190,24 @@
               )
             : ''
         }</div>` +
-        `<div>${u.sec('Agenda Google', events.length ? `<div class="cd-tl">${events.map((e) => u.row({ when: u.fmtDate(e.start), t: e.title, d: e.location })).join('')}</div>` : `<div class="cd-grp"><div class="cd-empty">${hoje.planner.calendarConnected ? 'Nada marcado.' : 'Google Agenda desconectado (Planner Core ou Google desligado).'}</div></div>`)}` +
+        `<div>${u.sec('Google Agenda · 7 dias', events.length ? `<div class="cd-tl">${events.map((e) => u.row({ when: u.fmtDate(e.start), t: e.title, d: [e.location, e.calendarName].filter(Boolean).join(' · ') })).join('')}</div>` : `<div class="cd-grp"><div class="cd-empty">${google.errors && google.errors.length ? 'Indisponível: veja o aviso acima.' : 'Nada marcado.'}</div></div>`, events.length ? String(events.length) : '')}` +
+        `${u.sec(
+          'Google Tasks',
+          gtasks.length
+            ? u.grp(
+                gtasks.map((t) =>
+                  u.row({
+                    t: t.title,
+                    d: (t.notes || '').split('\n')[0],
+                    when: t.due ? 'prazo ' + u.fmtDate(t.due) : '',
+                    tags: [t.due && daysUntil(t.due) < 0 ? 'atrasada' : ''],
+                  }),
+                ),
+                30,
+              )
+            : `<div class="cd-grp"><div class="cd-empty">${google.errors && google.errors.length ? 'Indisponível: veja o aviso acima.' : 'Nenhuma tarefa no Google Tasks.'}</div></div>`,
+          gtasks.length ? String(gtasks.length) : '',
+        )}` +
         `${u.sec(
           'Lembretes do escritório',
           u.grp(
@@ -182,6 +236,13 @@
           .catch((e) => toast(e.message));
       };
       $('ctTaskAdd').onclick = add;
+      if ($('ctGReconnect'))
+        $('ctGReconnect').onclick = async () => {
+          const r = await fetch('/api/google/reconnect', { method: 'POST' })
+            .then((x) => x.json())
+            .catch(() => ({}));
+          toast(r.message || 'Abri o navegador pra reconectar');
+        };
       $('ctTask').onkeydown = (e) => {
         if (e.key === 'Enter') add();
       };

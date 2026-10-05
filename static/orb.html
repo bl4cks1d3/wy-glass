@@ -499,6 +499,7 @@ canvas#orb { position: fixed; inset: 0; width: 100vw; height: 100vh; display: bl
         break;
       case "live_card": window.wyCards && window.wyCards.fromAgent(m.card); break;
       case "live_central": window.wyCentral && window.wyCentral.open(m.section, m.agent); break;
+      case "office_nudge": toast("Lembrete: " + m.text); addFeed("Lembrete" + (m.agent ? " · " + m.agent.replace("setor-", "") : ""), m.text); break;
       case "gesture": if (m.label) toast(m.label); break;
     }
   }

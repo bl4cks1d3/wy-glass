@@ -19,6 +19,7 @@ from pathlib import Path
 MODEL_DIR = Path(__file__).parent / "models" / "vosk-model-small-pt-0.3"
 SAMPLE_RATE = 16000
 MATCH_RATIO = 0.82
+WORD_RATIO = 0.72  # cada palavra: tolera pronuncia ("oculos"/"ocullos"), nao troca de palavra ("o"/"hey")
 
 _model = None
 
@@ -44,15 +45,18 @@ def contains_phrase(text: str, phrase: str, ratio: float = MATCH_RATIO) -> bool:
     t, p = normalize(text).split(), normalize(phrase).split()
     if not t or not p:
         return False
-    if " ".join(p) in " ".join(t):
-        return True
     n = len(p)
-    target = " ".join(p)
-    for size in {max(1, n - 1), n, n + 1}:
-        for i in range(0, max(1, len(t) - size + 1)):
-            window = " ".join(t[i:i + size])
-            if difflib.SequenceMatcher(None, window, target).ratio() >= ratio:
-                return True
+    # Palavra por palavra, na mesma posicao: cada palavra da frase tem que bater com a palavra
+    # correspondente. Comparar a frase inteira como texto deixava "o computador travou" casar com
+    # "hey computador" (sobra "computador" e a frase passa do limiar) -- durante a pausa isso tiraria
+    # o usuario da conversa com outra pessoa. Variantes de pronuncia ("ei", "e") entram como apelido.
+    for i in range(0, len(t) - n + 1):
+        window = t[i:i + n]
+        if window == p:
+            return True
+        if all(difflib.SequenceMatcher(None, w, q).ratio() >= WORD_RATIO for w, q in zip(window, p)) and \
+                difflib.SequenceMatcher(None, " ".join(window), " ".join(p)).ratio() >= ratio:
+            return True
     return False
 
 

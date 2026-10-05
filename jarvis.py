@@ -324,11 +324,27 @@ def _kill_tts_worker():
         proc.kill()
 
 
-def speak(text: str, model_name: str):
+def _live_running() -> bool:
+    import sys
+    mod = sys.modules.get("live_agent")
+    return bool(mod and mod.is_running())
+
+
+def speak(text: str, model_name: str, during_live: str = "announce"):
     """Fala texto em voz alta via o tts_worker persistente (nasce na primeira fala, fica vivo
     pelo resto da execucao do server.py) — evita pagar import do piper/onnxruntime + carregar o
-    modelo de voz do zero em toda fala, que era o maior gargalo de latencia da conversa."""
+    modelo de voz do zero em toda fala, que era o maior gargalo de latencia da conversa.
+
+    Com o modo Live ativo o Piper NAO toca: os dois saem no mesmo alto-falante dos oculos e
+    ficavam falando ao mesmo tempo. during_live="announce" repassa o recado pra voz do Live (o
+    Gemini avisa na mesma conversa); "skip" descarta (ex.: saudacao de reconexao do BLE)."""
     import json
+    if _live_running():
+        print(f"[jarvis] Piper suprimido (Live ativo, {during_live}): {text[:80]!r}", flush=True)
+        if during_live == "announce":
+            import live_agent
+            live_agent.announce(text)
+        return
     # Pause wake-word/clap listening while the TTS plays out of the same Bluetooth
     # speaker the mic listens on — otherwise the assistant's own voice can retrigger it.
     _passive_listener_pause()

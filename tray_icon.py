@@ -52,8 +52,8 @@ def _build_icon():
     from PIL import Image
     image = Image.open(ICON_PATH)
     menu = pystray.Menu(
-        pystray.MenuItem("Abrir Wy Glass Live", _open_orb, default=True),
-        pystray.MenuItem("Abrir Dashboard", _open_dashboard),
+        pystray.MenuItem("Abrir Wy Glass", _open_dashboard, default=True),
+        pystray.MenuItem("Abrir no navegador", _open_orb),
         pystray.MenuItem("Sair", _quit),
     )
     return pystray.Icon("wyglass", image, "Wy Glass", menu)

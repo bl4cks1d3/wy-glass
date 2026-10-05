@@ -31,3 +31,4 @@ playwright         # idem -- busca/navegacao web (ferramenta "search"/"open_url"
 keyboard           # acao key_shortcut
 pyinstaller        # empacotar .exe (build, nao runtime)
 pystray            # icone na bandeja do sistema
+pywebview          # dashboard desktop: janela nativa (WebView2) com o orb -- sem ela, abre no Edge --app

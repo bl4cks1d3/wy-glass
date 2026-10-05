@@ -216,6 +216,10 @@ async def conversation_loop(gesture_key: str, gcfg: dict):
     await broadcast({"type": "conversation", "status": "ended"})
 
 
+# acoes de gesto que gravam pelo mic e falam pelo Piper -- bloqueadas enquanto o Live roda
+_PIPER_ACTIONS = {"open_jarvis_agent", "jarvis_voice_agent", "translator_agent", "voice_command"}
+
+
 def _live_agent():
     import live_agent
     return live_agent
@@ -251,6 +255,8 @@ def _on_live_event(payload: dict):
 def _start_live_blocking(cfg: dict) -> bool:
     # sempre via run_in_executor: live_agent puxa audio_capture/sounddevice (mesma razao de
     # _speak_blocking — nunca importar isso na thread do event loop)
+    import jarvis
+    jarvis.stop_speaking()  # corta qualquer fala do Piper em andamento antes do Live comecar a falar
     _passive_listener().pause()
     started = _live_agent().start(cfg, _on_live_event)
     if not started:
@@ -301,6 +307,12 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
             mod.pause("botao")
         await broadcast({"type": "gesture", "gesture": gesture_key, "label": "Pausa do Live (botao)",
                           "raw": raw_hex, "time": ts(), "note": note})
+        return
+
+    if _live_running() and gcfg.get("action") in _PIPER_ACTIONS:
+        # usam o Piper e o mic por conta propria: rodar durante o Live = duas vozes ao mesmo tempo
+        await broadcast({"type": "action_result", "gesture": gesture_key, "ok": False,
+                          "message": "ignorado: modo Live ativo (encerre o Live pra usar este gesto)", "time": ts()})
         return
 
     if gcfg.get("action") == "live_agent":
@@ -379,7 +391,7 @@ def _connect_greeting_blocking(user_name: str, tts_model: str, session_id: str):
     import jarvis
     import smart_agent
     greeting = smart_agent.greeting_text(user_name)
-    jarvis.speak(greeting, tts_model)
+    jarvis.speak(greeting, tts_model, during_live="skip")
     # marca a sessao como ja iniciada, senao o primeiro clique real repetiria a mesma saudacao
     # de novo (open_jarvis_agent so cumprimenta se a sessao ainda nao existir)
     smart_agent.conversations.setdefault(session_id, [])

@@ -205,6 +205,13 @@ def pause(reason: str = "manual"):
         _loop.call_soon_threadsafe(_ctl["pause"], reason)
 
 
+def announce(text: str):
+    """Recado do sistema (ex.: bateria baixa) falado pela voz do Live em vez do Piper. Durante a
+    pausa e descartado: o usuario esta conversando com outra pessoa."""
+    if _loop is not None and is_running() and "announce" in _ctl:
+        _loop.call_soon_threadsafe(_ctl["announce"], text)
+
+
 def resume(reason: str = "manual"):
     if _loop is not None and is_running() and "resume" in _ctl:
         _loop.call_soon_threadsafe(_ctl["resume"], reason)
@@ -576,7 +583,14 @@ async def _session_main(cfg: dict, on_event):
         set_status("listening")
         emit({"type": "live_pause", "paused": False, "reason": reason})
 
-    _ctl["pause"], _ctl["resume"] = enter_pause, leave_pause
+    def announce_now(text: str):
+        if live_session is None or _paused.is_set():
+            return
+        _log(f"AVISO falado pelo Live: {text[:80]!r}")
+        asyncio.create_task(live_session.send_realtime_input(
+            text=f"[aviso do sistema, nao e fala do usuario] Avise o usuario em uma frase curta: {text}"))
+
+    _ctl["pause"], _ctl["resume"], _ctl["announce"] = enter_pause, leave_pause, announce_now
 
     def is_pause_request(text: str) -> bool:
         import wake_spotter

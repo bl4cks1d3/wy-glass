@@ -1,6 +1,6 @@
 """
-Launches/tracks the Tkinter dashboard (dashboard.py) as a separate process,
-with a simple PID lock file so asking to "open the dashboard" twice doesn't
+Launches/tracks the desktop dashboard (dashboard.py: native WebView2 window showing the orb) as a
+separate process, with a simple PID lock file so asking to "open the dashboard" twice doesn't
 spawn two windows.
 """
 
@@ -35,7 +35,10 @@ def is_running() -> bool:
 def open_dashboard() -> str:
     if is_running():
         return "o dashboard ja esta aberto"
-    proc = subprocess.Popen([sys.executable, str(BASE_DIR / "dashboard.py")], cwd=str(BASE_DIR))
+    # pythonw: janela grafica sem console preto atras (o servidor costuma rodar sem console)
+    pyw = Path(sys.executable).with_name("pythonw.exe")
+    exe = str(pyw) if pyw.exists() else sys.executable
+    proc = subprocess.Popen([exe, str(BASE_DIR / "dashboard.py")], cwd=str(BASE_DIR))
     LOCK_FILE.write_text(str(proc.pid))
     return "dashboard aberto"
 

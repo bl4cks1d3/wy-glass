@@ -27,7 +27,13 @@ from pathlib import Path
 
 import numpy as np
 
-DEFAULT_MODEL = "gemini-3.8-live"
+DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+# Fallback quando o modelo configurado cai com erro interno logo apos conectar. Medido em
+# 2026-10-05: o gemini-3.8-live passou a responder 1011 a QUALQUER system_instruction acima de
+# poucas dezenas de caracteres (ate texto neutro de 300 chars), enquanto 3.1-flash-live e
+# 2.5-flash-native-audio aceitavam o prompt completo -- falha do lado do Google, por modelo.
+MODEL_FALLBACKS = ["gemini-3.1-flash-live-preview", "gemini-2.5-flash-native-audio-latest"]
+MODEL_SWITCH_AFTER = 2  # quedas internas seguidas, cedo, no mesmo modelo
 DEFAULT_VOICE = "Charon"
 IN_RATE = 16000
 OUT_RATE = 24000
@@ -196,6 +202,13 @@ def status() -> str:
     return "paused" if _paused.is_set() else _status
 
 
+_started_at = 0.0
+
+
+def seconds_since_start() -> float:
+    return time.monotonic() - _started_at if is_running() else 0.0
+
+
 def is_paused() -> bool:
     return is_running() and _paused.is_set()
 
@@ -265,10 +278,11 @@ def _ensure_loop():
 
 def start(cfg: dict, on_event) -> bool:
     """Inicia uma sessao live. Retorna False se ja havia uma rodando. Nao bloqueia."""
-    global _task
+    global _task, _started_at
     _ensure_loop()
     if is_running():
         return False
+    _started_at = time.monotonic()
 
     def _create():
         global _task
@@ -797,7 +811,8 @@ async def _session_main(cfg: dict, on_event):
         except Exception as e:
             # sem Vosk a pausa ainda funciona; so a volta fica restrita ao botao/painel
             _log(f"detector de ativacao indisponivel: {e!r}")
-        fails, started = 0, 0.0
+        fails, started, model_fails = 0, 0.0, 0
+        candidates = [model] + [m for m in MODEL_FALLBACKS if m != model]
         while True:
             try:
                 async with client.aio.live.connect(model=model, config=live_config()) as session:
@@ -819,11 +834,28 @@ async def _session_main(cfg: dict, on_event):
             except Exception as e:
                 print(f"[live_agent] sessao caiu: {e!r}", flush=True)
                 _log(f"SESSAO CAIU: {e!r}"[:300])
-                if started and time.monotonic() - started > 30:
+                lived = time.monotonic() - started if started else 0.0
+                if lived > 30:
                     fails = 0  # a sessao chegou a funcionar: e queda nova, nao a mesma falha repetida
                 started = 0.0
                 fails += 1
                 err = str(e).lower()
+                # erro interno logo no comeco, repetido, no mesmo modelo = o modelo esta quebrado
+                # (nao a rede): troca pro proximo da lista em vez de gastar as tentativas nele
+                if ("1011" in err or "internal" in err) and lived < 60:
+                    model_fails += 1
+                else:
+                    model_fails = 0
+                if model_fails >= MODEL_SWITCH_AFTER and candidates.index(model) + 1 < len(candidates):
+                    old_model = model
+                    model = candidates[candidates.index(model) + 1]
+                    resume_handle = None  # handle de retomada e por modelo
+                    model_fails, fails = 0, 0
+                    _log(f"MODELO TROCADO: {old_model} com erro interno repetido -> {model}")
+                    emit({"type": "live_session", "model": model, "voice": cfg.get("voice") or DEFAULT_VOICE})
+                    set_status("connecting", f"{old_model} com falha, trocando para {model}")
+                    await asyncio.sleep(1.0)
+                    continue
                 # 1008 "Requested entity was not found" = o Gemini nao reconhece mais o handle de retomada
                 # (expira depois de horas ou de erro interno 1011). Insistir nele prendeu o Live num loop
                 # de 16h; descarta e abre sessao nova (perde o contexto, volta a funcionar).

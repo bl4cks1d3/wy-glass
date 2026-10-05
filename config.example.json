@@ -91,7 +91,7 @@
     }
   },
   "live": {
-    "model": "gemini-3.8-live",
+    "model": "gemini-3.1-flash-live-preview",
     "voice": "Charon",
     "barge_in_rms": 2500,
     "silence_ms": 600,

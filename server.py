@@ -216,6 +216,8 @@ async def conversation_loop(gesture_key: str, gcfg: dict):
     await broadcast({"type": "conversation", "status": "ended"})
 
 
+LIVE_BUTTON_GRACE_S = 5.0
+
 # acoes de gesto que gravam pelo mic e falam pelo Piper -- bloqueadas enquanto o Live roda
 _PIPER_ACTIONS = {"open_jarvis_agent", "jarvis_voice_agent", "translator_agent", "voice_command"}
 
@@ -301,6 +303,10 @@ async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
 
     if gesture_key == "button1_single" and _live_running():
         mod = _live_agent()
+        if mod.seconds_since_start() < LIVE_BUTTON_GRACE_S:
+            # clique logo depois de ligar o Live (ou o 3o clique de um duplo) pausava a sessao na
+            # largada -- "o Live nao funciona"; ignora nos primeiros segundos
+            return
         if mod.is_paused():
             mod.resume("botao")
         else:

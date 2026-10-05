@@ -42,6 +42,7 @@ DEFAULT_BARGE_IN_RMS = 2500
 # era o usuario interrompendo. So libera o mic com N blocos seguidos (30 ms cada) acima do limite.
 BARGE_IN_CHUNKS = 3
 LEVEL_EVENT_INTERVAL = 1 / 15
+MAX_RECONNECT_FAILS = 8  # ~3 min de tentativas com espera crescente, depois desiste e avisa
 LOG_PATH = Path(__file__).parent / "live_agent.log"
 
 
@@ -782,10 +783,12 @@ async def _session_main(cfg: dict, on_event):
         except Exception as e:
             # sem Vosk a pausa ainda funciona; so a volta fica restrita ao botao/painel
             _log(f"detector de ativacao indisponivel: {e!r}")
+        fails, started = 0, 0.0
         while True:
             try:
                 async with client.aio.live.connect(model=model, config=live_config()) as session:
                     live_session = session
+                    started = time.monotonic()
                     _log(f"SESSAO model={model} voz={cfg.get('voice') or DEFAULT_VOICE} barge_in_rms={barge_in_rms:.0f}")
                     set_status("paused" if _paused.is_set() else "listening")
                     emit({"type": "live_session", "model": model, "voice": cfg.get("voice") or DEFAULT_VOICE})
@@ -802,11 +805,23 @@ async def _session_main(cfg: dict, on_event):
             except Exception as e:
                 print(f"[live_agent] sessao caiu: {e!r}", flush=True)
                 _log(f"SESSAO CAIU: {e!r}"[:300])
-                set_status("error", str(e)[:200])
-                if resume_handle is None:
+                if started and time.monotonic() - started > 30:
+                    fails = 0  # a sessao chegou a funcionar: e queda nova, nao a mesma falha repetida
+                started = 0.0
+                fails += 1
+                err = str(e).lower()
+                # 1008 "Requested entity was not found" = o Gemini nao reconhece mais o handle de retomada
+                # (expira depois de horas ou de erro interno 1011). Insistir nele prendeu o Live num loop
+                # de 16h; descarta e abre sessao nova (perde o contexto, volta a funcionar).
+                if resume_handle and ("1008" in err or "not found" in err or fails >= 2):
+                    _log("HANDLE DE RETOMADA RECUSADO: abrindo sessao nova sem o contexto anterior")
+                    resume_handle = None
+                if fails >= MAX_RECONNECT_FAILS:
+                    _log(f"DESISTINDO apos {fails} falhas seguidas")
+                    set_status("error", f"Gemini Live indisponivel apos {fails} tentativas: {str(e)[:120]}")
                     break
-                await asyncio.sleep(1.5)
-                set_status("connecting", "reconectando")
+                set_status("connecting", f"reconectando ({fails}/{MAX_RECONNECT_FAILS})")
+                await asyncio.sleep(min(30.0, 1.5 * 2 ** (fails - 1)))
     except asyncio.CancelledError:
         pass
     except Exception as e:

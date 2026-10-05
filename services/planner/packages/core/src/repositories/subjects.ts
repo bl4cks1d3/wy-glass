@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { Subject } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { Subject } from '@planner-life/shared';
 
 interface SubjectRow {
   id: string;
@@ -24,7 +24,10 @@ function rowToSubject(row: SubjectRow): Subject {
   };
 }
 
-export function createSubject(db: PlannerDb, input: { name: string; note?: string; examDate?: string }): Subject {
+export function createSubject(
+  db: PlannerDb,
+  input: { name: string; note?: string; examDate?: string },
+): Subject {
   const now = new Date().toISOString();
   const row: SubjectRow = {
     id: randomUUID(),
@@ -36,7 +39,7 @@ export function createSubject(db: PlannerDb, input: { name: string; note?: strin
     updated_at: now,
   };
   db.prepare(
-    `INSERT INTO subjects (id, name, progress, note, exam_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO subjects (id, name, progress, note, exam_date, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.name, row.progress, row.note, row.exam_date, row.created_at, row.updated_at);
   return rowToSubject(row);
 }
@@ -56,17 +59,19 @@ export function getSubject(db: PlannerDb, id: string): Subject | undefined {
 export function updateSubject(
   db: PlannerDb,
   id: string,
-  input: { progress?: number; note?: string; examDate?: string | null }
+  input: { progress?: number; note?: string; examDate?: string | null },
 ): Subject | undefined {
   const current = getSubject(db, id);
   if (!current) return undefined;
   const now = new Date().toISOString();
-  db.prepare(`UPDATE subjects SET progress = ?, note = ?, exam_date = ?, updated_at = ? WHERE id = ?`).run(
+  db.prepare(
+    `UPDATE subjects SET progress = ?, note = ?, exam_date = ?, updated_at = ? WHERE id = ?`,
+  ).run(
     input.progress ?? current.progress,
     input.note ?? current.note ?? null,
     input.examDate === undefined ? (current.examDate ?? null) : input.examDate,
     now,
-    id
+    id,
   );
   return getSubject(db, id);
 }

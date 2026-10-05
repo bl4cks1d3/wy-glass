@@ -1,8 +1,8 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
-import { GoogleAuthService } from "./google-auth.service";
-import { MessagesService } from "../../messages/messages.service";
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { GoogleAuthService } from './google-auth.service';
+import { MessagesService } from '../../messages/messages.service';
 
-const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
 interface GmailListResponse {
   messages?: { id: string; threadId: string }[];
@@ -26,24 +26,28 @@ function header(msg: GmailMessageResponse, name: string): string | undefined {
 }
 
 function decodeBase64Url(data: string): string {
-  const normalized = data.replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(normalized, "base64").toString("utf8");
+  const normalized = data.replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(normalized, 'base64').toString('utf8');
 }
 
 /** Anda pela arvore de partes MIME procurando texto (junta plain e html separados). */
 function extractBody(part: GmailPart | undefined): { text: string; html: string } {
-  if (!part) return { text: "", html: "" };
-  let plain = "";
-  let html = "";
+  if (!part) return { text: '', html: '' };
+  let plain = '';
+  let html = '';
 
   function walk(p: GmailPart) {
-    if (p.mimeType === "text/plain" && p.body?.data) {
+    if (p.mimeType === 'text/plain' && p.body?.data) {
       plain += decodeBase64Url(p.body.data);
-    } else if (p.mimeType === "text/html" && p.body?.data) {
+    } else if (p.mimeType === 'text/html' && p.body?.data) {
       html += decodeBase64Url(p.body.data);
     } else if (p.parts) {
       p.parts.forEach(walk);
-    } else if (p.body?.data && !p.mimeType?.startsWith("image/") && !p.mimeType?.startsWith("application/")) {
+    } else if (
+      p.body?.data &&
+      !p.mimeType?.startsWith('image/') &&
+      !p.mimeType?.startsWith('application/')
+    ) {
       plain += decodeBase64Url(p.body.data);
     }
   }
@@ -56,7 +60,7 @@ function extractBody(part: GmailPart | undefined): { text: string; html: string 
 export class GmailService {
   constructor(
     private readonly googleAuth: GoogleAuthService,
-    private readonly messagesService: MessagesService
+    private readonly messagesService: MessagesService,
   ) {}
 
   private async gmailFetch(path: string, accessToken: string) {
@@ -64,7 +68,9 @@ export class GmailService {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     if (!res.ok) {
-      throw new InternalServerErrorException(`Gmail API respondeu ${res.status}: ${await res.text()}`);
+      throw new InternalServerErrorException(
+        `Gmail API respondeu ${res.status}: ${await res.text()}`,
+      );
     }
     return res.json();
   }
@@ -77,15 +83,18 @@ export class GmailService {
    */
   async getMessageBody(
     email: string,
-    gmailMessageId: string
+    gmailMessageId: string,
   ): Promise<{ from: string; subject: string; text: string; html: string }> {
     const accessToken = await this.googleAuth.getValidAccessToken(email);
-    const detail = (await this.gmailFetch(`/messages/${gmailMessageId}?format=full`, accessToken)) as GmailMessageResponse;
+    const detail = (await this.gmailFetch(
+      `/messages/${gmailMessageId}?format=full`,
+      accessToken,
+    )) as GmailMessageResponse;
     const { text, html } = extractBody(detail.payload);
     return {
-      from: header(detail, "From") ?? "desconhecido",
-      subject: header(detail, "Subject") ?? "(sem assunto)",
-      text: text || detail.snippet || "(sem conteudo legivel)",
+      from: header(detail, 'From') ?? 'desconhecido',
+      subject: header(detail, 'Subject') ?? '(sem assunto)',
+      text: text || detail.snippet || '(sem conteudo legivel)',
       html,
     };
   }
@@ -96,7 +105,7 @@ export class GmailService {
 
     const list = (await this.gmailFetch(
       `/messages?maxResults=${limit}&labelIds=INBOX`,
-      accessToken
+      accessToken,
     )) as GmailListResponse;
 
     const ids = list.messages ?? [];
@@ -104,11 +113,11 @@ export class GmailService {
     for (const { id } of ids) {
       const detail = (await this.gmailFetch(
         `/messages/${id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`,
-        accessToken
+        accessToken,
       )) as GmailMessageResponse;
 
-      const from = header(detail, "From") ?? "desconhecido";
-      const subject = header(detail, "Subject") ?? "(sem assunto)";
+      const from = header(detail, 'From') ?? 'desconhecido';
+      const subject = header(detail, 'Subject') ?? '(sem assunto)';
       const receivedAt = detail.internalDate
         ? new Date(Number(detail.internalDate)).toISOString()
         : new Date().toISOString();
@@ -128,8 +137,13 @@ export class GmailService {
   }
 
   /** Sincroniza todas as contas Google conectadas (ou so uma, se informada). */
-  async syncInbox(limit = 10, onlyAccount?: string): Promise<{ synced: number; accounts: string[] }> {
-    const accounts = onlyAccount ? [onlyAccount] : this.googleAuth.listAccounts().map((a) => a.email);
+  async syncInbox(
+    limit = 10,
+    onlyAccount?: string,
+  ): Promise<{ synced: number; accounts: string[] }> {
+    const accounts = onlyAccount
+      ? [onlyAccount]
+      : this.googleAuth.listAccounts().map((a) => a.email);
     let total = 0;
     for (const email of accounts) {
       total += await this.syncAccount(email, limit);

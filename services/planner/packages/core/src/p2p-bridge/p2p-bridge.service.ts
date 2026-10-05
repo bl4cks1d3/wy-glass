@@ -1,6 +1,6 @@
-import { Injectable, Logger, type OnModuleInit } from "@nestjs/common";
-import { PlannerEventBus } from "../eventBus";
-import type { PlpEventType } from "@planner-life/shared";
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { PlannerEventBus } from '../eventBus';
+import type { PlpEventType } from '@planner-life/shared';
 
 /**
  * Encaminha tudo que passa pelo PlannerEventBus para o no P2P local (via o
@@ -20,20 +20,23 @@ export class P2pBridgeService implements OnModuleInit {
   constructor(private readonly eventBus: PlannerEventBus) {}
 
   private get bridgeUrl(): string {
-    return process.env.P2P_NODE_HTTP_URL ?? "http://127.0.0.1:4401";
+    return process.env.P2P_NODE_HTTP_URL ?? 'http://127.0.0.1:4401';
   }
 
   onModuleInit(): void {
-    this.eventBus.on("event", (event: { type: PlpEventType; payload: Record<string, unknown> }) => {
+    this.eventBus.on('event', (event: { type: PlpEventType; payload: Record<string, unknown> }) => {
       this.forward(event).catch(() => undefined);
     });
   }
 
-  private async forward(event: { type: PlpEventType; payload: Record<string, unknown> }): Promise<void> {
+  private async forward(event: {
+    type: PlpEventType;
+    payload: Record<string, unknown>;
+  }): Promise<void> {
     try {
       await fetch(`${this.bridgeUrl}/publish`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(event),
         signal: AbortSignal.timeout(1500),
       });

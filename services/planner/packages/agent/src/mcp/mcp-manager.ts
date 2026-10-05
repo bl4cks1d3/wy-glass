@@ -1,14 +1,14 @@
-import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
-import type { AgentTool } from "../tools";
+import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js';
+import type { AgentTool } from '../tools';
 
 // Mesma convencao do .mcp.json do Claude Code, pra quem ja usa isso ficar
 // em casa: { "mcpServers": { "nome": { "command": ..., "args": [...] } } }
-const CONFIG_PATH = resolve(__dirname, "../../../../.mcp.json");
+const CONFIG_PATH = resolve(__dirname, '../../../../.mcp.json');
 
 interface McpServerConfig {
   command: string;
@@ -43,19 +43,26 @@ export class McpManager implements OnModuleInit, OnModuleDestroy {
 
     let config: McpConfigFile;
     try {
-      config = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+      config = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'));
     } catch (err) {
-      this.logger.warn(`Nao foi possivel ler .mcp.json: ${err instanceof Error ? err.message : err}`);
+      this.logger.warn(
+        `Nao foi possivel ler .mcp.json: ${err instanceof Error ? err.message : err}`,
+      );
       return;
     }
 
     const entries = Object.entries(config.mcpServers ?? {});
-    await Promise.all(entries.map(([name, serverConfig]) => this.connectServer(name, serverConfig)));
+    await Promise.all(
+      entries.map(([name, serverConfig]) => this.connectServer(name, serverConfig)),
+    );
   }
 
   private async connectServer(name: string, serverConfig: McpServerConfig): Promise<void> {
+    // o servidor MCP do proprio Planner Life e para o Claude Code: conecta-lo aqui faria o agente
+    // enxergar as proprias ferramentas de volta (recursao) por um caminho mais lento.
+    if (name === 'planner-life') return;
     try {
-      const client = new Client({ name: "planner-life-agent", version: "0.1.0" });
+      const client = new Client({ name: 'planner-life-agent', version: '0.1.0' });
       const transport = new StdioClientTransport({
         command: serverConfig.command,
         args: serverConfig.args,
@@ -67,7 +74,7 @@ export class McpManager implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`MCP conectado: ${name} (${tools.length} ferramenta(s))`);
     } catch (err) {
       this.logger.warn(
-        `Falha ao conectar no servidor MCP "${name}": ${err instanceof Error ? err.message : err}`
+        `Falha ao conectar no servidor MCP "${name}": ${err instanceof Error ? err.message : err}`,
       );
     }
   }
@@ -80,9 +87,9 @@ export class McpManager implements OnModuleInit, OnModuleDestroy {
     return this.servers.flatMap((server) =>
       server.tools.map((tool) => ({
         name: `mcp__${server.name}__${tool.name}`,
-        description: tool.description ?? "",
-        parameters: tool.inputSchema as AgentTool["parameters"],
-      }))
+        description: tool.description ?? '',
+        parameters: tool.inputSchema as AgentTool['parameters'],
+      })),
     );
   }
 
@@ -100,9 +107,9 @@ export class McpManager implements OnModuleInit, OnModuleDestroy {
     const result = await server.client.callTool({ name: toolName, arguments: args });
     const content = (result.content ?? []) as Array<{ type: string; text?: string }>;
     const text = content
-      .filter((part) => part.type === "text")
+      .filter((part) => part.type === 'text')
       .map((part) => part.text)
-      .join("\n");
+      .join('\n');
     return text || result;
   }
 }

@@ -1,16 +1,16 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { PlannerDb } from "../db";
-import { PLANNER_DB } from "../database/database.module";
-import { PlannerEventBus } from "../eventBus";
-import { EventsService } from "../events/events.service";
-import * as messagesRepo from "../repositories/messages";
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import type { PlannerDb } from '../db';
+import { PLANNER_DB } from '../database/database.module';
+import { PlannerEventBus } from '../eventBus';
+import { EventsService } from '../events/events.service';
+import * as messagesRepo from '../repositories/messages';
 
 @Injectable()
 export class MessagesService {
   constructor(
     @Inject(PLANNER_DB) private readonly db: PlannerDb,
     private readonly eventsService: EventsService,
-    private readonly eventBus: PlannerEventBus
+    private readonly eventBus: PlannerEventBus,
   ) {}
 
   list() {
@@ -36,25 +36,25 @@ export class MessagesService {
     receivedAt: string;
   }) {
     const message = messagesRepo.upsertMessage(this.db, input);
-    this.eventsService.record("message.synced", { messageId: message.id, from: message.from });
-    this.eventBus.publish("message.synced", { messageId: message.id, from: message.from });
+    this.eventsService.record('message.synced', { messageId: message.id, from: message.from });
+    this.eventBus.publish('message.synced', { messageId: message.id, from: message.from });
     return message;
   }
 
   setHandled(id: string, handled: boolean) {
     const message = messagesRepo.setMessageHandled(this.db, id, handled);
     if (!message) {
-      throw new NotFoundException("mensagem nao encontrada");
+      throw new NotFoundException('mensagem nao encontrada');
     }
-    this.eventsService.record("message.handled", { messageId: id, handled });
-    this.eventBus.publish("message.handled", { messageId: id, handled });
+    this.eventsService.record('message.handled', { messageId: id, handled });
+    this.eventBus.publish('message.handled', { messageId: id, handled });
     return message;
   }
 
   remove(id: string) {
     messagesRepo.deleteMessage(this.db, id);
-    this.eventsService.record("message.deleted", { messageId: id });
-    this.eventBus.publish("message.deleted", { messageId: id });
+    this.eventsService.record('message.deleted', { messageId: id });
+    this.eventBus.publish('message.deleted', { messageId: id });
   }
 
   /**
@@ -64,8 +64,8 @@ export class MessagesService {
    */
   clearAll() {
     const count = messagesRepo.clearMessages(this.db);
-    this.eventsService.record("message.deleted", { count, all: true });
-    this.eventBus.publish("message.deleted", { count, all: true });
+    this.eventsService.record('message.deleted', { count, all: true });
+    this.eventBus.publish('message.deleted', { count, all: true });
     return { cleared: count };
   }
 }

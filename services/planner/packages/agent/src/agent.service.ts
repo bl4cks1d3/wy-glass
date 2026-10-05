@@ -1,6 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { createLlmProvider, type LlmProvider } from "./providers";
-import { ToolRegistry } from "./tool-registry";
+import { Injectable, Logger } from '@nestjs/common';
+import { createLlmProvider, type LlmProvider } from './providers';
+import { ToolRegistry } from './tool-registry';
 
 @Injectable()
 export class AgentService {

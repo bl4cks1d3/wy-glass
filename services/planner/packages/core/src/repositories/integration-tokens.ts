@@ -1,4 +1,4 @@
-import type { PlannerDb } from "../db";
+import type { PlannerDb } from '../db';
 
 export interface IntegrationToken {
   provider: string;
@@ -37,7 +37,7 @@ export function saveIntegrationToken(
     refreshToken?: string;
     expiresAt?: string;
     scope?: string;
-  }
+  },
 ): IntegrationToken {
   const now = new Date().toISOString();
   db.prepare(
@@ -48,22 +48,21 @@ export function saveIntegrationToken(
        refresh_token = COALESCE(excluded.refresh_token, integration_tokens.refresh_token),
        expires_at = excluded.expires_at,
        scope = excluded.scope,
-       updated_at = excluded.updated_at`
+       updated_at = excluded.updated_at`,
   ).run(
     input.provider,
     input.accessToken,
     input.refreshToken ?? null,
     input.expiresAt ?? null,
     input.scope ?? null,
-    now
+    now,
   );
   return getIntegrationToken(db, input.provider) as IntegrationToken;
 }
 
 export function getIntegrationToken(db: PlannerDb, provider: string): IntegrationToken | undefined {
   const row = db.prepare(`SELECT * FROM integration_tokens WHERE provider = ?`).get(provider) as
-    | TokenRow
-    | undefined;
+    TokenRow | undefined;
   return row ? rowToToken(row) : undefined;
 }
 

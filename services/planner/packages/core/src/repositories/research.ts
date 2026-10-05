@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { Paper, PaperStatus, ResearchLine } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { Paper, PaperStatus, ResearchLine } from '@planner-life/shared';
 
 interface ResearchLineRow {
   id: string;
@@ -50,7 +50,7 @@ function rowToPaper(row: PaperRow): Paper {
 
 export function createResearchLine(
   db: PlannerDb,
-  input: { name: string; stage?: string; nextStep?: string }
+  input: { name: string; stage?: string; nextStep?: string },
 ): ResearchLine {
   const now = new Date().toISOString();
   const row: ResearchLineRow = {
@@ -63,7 +63,7 @@ export function createResearchLine(
     updated_at: now,
   };
   db.prepare(
-    `INSERT INTO research_lines (id, name, stage, refs, next_step, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO research_lines (id, name, stage, refs, next_step, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.name, row.stage, row.refs, row.next_step, row.created_at, row.updated_at);
   return rowToLine(row);
 }
@@ -77,15 +77,14 @@ export function listResearchLines(db: PlannerDb): ResearchLine[] {
 
 export function getResearchLine(db: PlannerDb, id: string): ResearchLine | undefined {
   const row = db.prepare(`SELECT * FROM research_lines WHERE id = ?`).get(id) as
-    | ResearchLineRow
-    | undefined;
+    ResearchLineRow | undefined;
   return row ? rowToLine(row) : undefined;
 }
 
 export function updateResearchLine(
   db: PlannerDb,
   id: string,
-  input: { stage?: string; nextStep?: string }
+  input: { stage?: string; nextStep?: string },
 ): ResearchLine | undefined {
   const current = getResearchLine(db, id);
   if (!current) return undefined;
@@ -94,7 +93,7 @@ export function updateResearchLine(
     input.stage ?? current.stage ?? null,
     input.nextStep ?? current.nextStep ?? null,
     now,
-    id
+    id,
   );
   return getResearchLine(db, id);
 }
@@ -106,14 +105,20 @@ export function deleteResearchLine(db: PlannerDb, id: string): void {
 
 export function createPaper(
   db: PlannerDb,
-  input: { title: string; source?: string; researchLineId?: string; status?: PaperStatus; notePath?: string }
+  input: {
+    title: string;
+    source?: string;
+    researchLineId?: string;
+    status?: PaperStatus;
+    notePath?: string;
+  },
 ): Paper {
   const now = new Date().toISOString();
   const row: PaperRow = {
     id: randomUUID(),
     title: input.title,
     source: input.source ?? null,
-    status: input.status ?? "na_fila",
+    status: input.status ?? 'na_fila',
     research_line_id: input.researchLineId ?? null,
     note_path: input.notePath ?? null,
     created_at: now,
@@ -122,11 +127,11 @@ export function createPaper(
   if (row.research_line_id) {
     db.prepare(`UPDATE research_lines SET refs = refs + 1, updated_at = ? WHERE id = ?`).run(
       now,
-      row.research_line_id
+      row.research_line_id,
     );
   }
   db.prepare(
-    `INSERT INTO papers (id, title, source, status, research_line_id, note_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO papers (id, title, source, status, research_line_id, note_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.title,
@@ -135,7 +140,7 @@ export function createPaper(
     row.research_line_id,
     row.note_path,
     row.created_at,
-    row.updated_at
+    row.updated_at,
   );
   return rowToPaper(row);
 }
@@ -157,13 +162,21 @@ export function getPaper(db: PlannerDb, id: string): Paper | undefined {
   return row ? rowToPaper(row) : undefined;
 }
 
-export function updatePaperStatus(db: PlannerDb, id: string, status: PaperStatus): Paper | undefined {
+export function updatePaperStatus(
+  db: PlannerDb,
+  id: string,
+  status: PaperStatus,
+): Paper | undefined {
   const now = new Date().toISOString();
   db.prepare(`UPDATE papers SET status = ?, updated_at = ? WHERE id = ?`).run(status, now, id);
   return getPaper(db, id);
 }
 
-export function updatePaperNotePath(db: PlannerDb, id: string, notePath: string): Paper | undefined {
+export function updatePaperNotePath(
+  db: PlannerDb,
+  id: string,
+  notePath: string,
+): Paper | undefined {
   const now = new Date().toISOString();
   db.prepare(`UPDATE papers SET note_path = ?, updated_at = ? WHERE id = ?`).run(notePath, now, id);
   return getPaper(db, id);

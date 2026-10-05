@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 export interface VaultNoteMeta {
   path: string;
@@ -26,17 +26,19 @@ export class VaultService {
 
   constructor() {
     const configured = process.env.OBSIDIAN_VAULT_PATH?.trim();
-    this.root = configured ? path.resolve(configured) : path.resolve(__dirname, "../../../../data/vault");
+    this.root = configured
+      ? path.resolve(configured)
+      : path.resolve(__dirname, '../../../../data/vault');
     fs.mkdirSync(this.root, { recursive: true });
   }
 
   /** Impede que um path relativo (ex: vindo do agente) escape do vault via "../../etc". */
   private resolveSafe(relPath: string): string {
-    const normalized = relPath.replace(/^[/\\]+/, "");
+    const normalized = relPath.replace(/^[/\\]+/, '');
     const target = path.resolve(this.root, normalized);
     const rootWithSep = this.root.endsWith(path.sep) ? this.root : this.root + path.sep;
     if (target !== this.root && !target.startsWith(rootWithSep)) {
-      throw new BadRequestException("caminho fora do vault");
+      throw new BadRequestException('caminho fora do vault');
     }
     return target;
   }
@@ -46,24 +48,24 @@ export class VaultService {
     return heading ? heading[1].trim() : fallback;
   }
 
-  private walk(dir: string, base = ""): VaultNoteMeta[] {
+  private walk(dir: string, base = ''): VaultNoteMeta[] {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const notes: VaultNoteMeta[] = [];
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
+      if (entry.name.startsWith('.')) continue;
       const relPath = base ? `${base}/${entry.name}` : entry.name;
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         notes.push(...this.walk(fullPath, relPath));
-      } else if (entry.name.toLowerCase().endsWith(".md")) {
+      } else if (entry.name.toLowerCase().endsWith('.md')) {
         const stat = fs.statSync(fullPath);
-        const content = fs.readFileSync(fullPath, "utf8");
-        const fallbackTitle = entry.name.replace(/\.md$/i, "");
+        const content = fs.readFileSync(fullPath, 'utf8');
+        const fallbackTitle = entry.name.replace(/\.md$/i, '');
         notes.push({
           path: relPath,
           title: this.titleFromContent(content, fallbackTitle),
           updatedAt: stat.mtime.toISOString(),
-          excerpt: content.replace(/^#.*$/m, "").trim().slice(0, 160),
+          excerpt: content.replace(/^#.*$/m, '').trim().slice(0, 160),
         });
       }
     }
@@ -80,9 +82,9 @@ export class VaultService {
     if (!fs.existsSync(fullPath)) {
       throw new NotFoundException(`nota nao encontrada: ${relPath}`);
     }
-    const content = fs.readFileSync(fullPath, "utf8");
+    const content = fs.readFileSync(fullPath, 'utf8');
     const stat = fs.statSync(fullPath);
-    const fallbackTitle = path.basename(relPath).replace(/\.md$/i, "");
+    const fallbackTitle = path.basename(relPath).replace(/\.md$/i, '');
     return {
       path: relPath,
       title: this.titleFromContent(content, fallbackTitle),
@@ -92,14 +94,14 @@ export class VaultService {
   }
 
   write(relPath: string, content: string): VaultNoteMeta {
-    const normalizedPath = relPath.toLowerCase().endsWith(".md") ? relPath : `${relPath}.md`;
+    const normalizedPath = relPath.toLowerCase().endsWith('.md') ? relPath : `${relPath}.md`;
     const fullPath = this.resolveSafe(normalizedPath);
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-    fs.writeFileSync(fullPath, content, "utf8");
+    fs.writeFileSync(fullPath, content, 'utf8');
     const stat = fs.statSync(fullPath);
     return {
       path: normalizedPath,
-      title: this.titleFromContent(content, path.basename(normalizedPath).replace(/\.md$/i, "")),
+      title: this.titleFromContent(content, path.basename(normalizedPath).replace(/\.md$/i, '')),
       updatedAt: stat.mtime.toISOString(),
     };
   }
@@ -113,9 +115,10 @@ export class VaultService {
   search(query: string): VaultNoteMeta[] {
     const q = query.toLowerCase();
     return this.list().filter((n) => {
-      if (n.title.toLowerCase().includes(q) || (n.excerpt ?? "").toLowerCase().includes(q)) return true;
+      if (n.title.toLowerCase().includes(q) || (n.excerpt ?? '').toLowerCase().includes(q))
+        return true;
       const fullPath = this.resolveSafe(n.path);
-      return fs.readFileSync(fullPath, "utf8").toLowerCase().includes(q);
+      return fs.readFileSync(fullPath, 'utf8').toLowerCase().includes(q);
     });
   }
 }

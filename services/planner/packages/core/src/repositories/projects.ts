@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { Project } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { Project } from '@planner-life/shared';
 
 interface ProjectRow {
   id: string;
@@ -22,10 +22,7 @@ function rowToProject(row: ProjectRow): Project {
   };
 }
 
-export function createProject(
-  db: PlannerDb,
-  input: { name: string; goal?: string }
-): Project {
+export function createProject(db: PlannerDb, input: { name: string; goal?: string }): Project {
   const now = new Date().toISOString();
   const row: ProjectRow = {
     id: randomUUID(),
@@ -36,7 +33,7 @@ export function createProject(
     updated_at: now,
   };
   db.prepare(
-    `INSERT INTO projects (id, name, goal, progress, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO projects (id, name, goal, progress, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.name, row.goal, row.progress, row.created_at, row.updated_at);
   return rowToProject(row);
 }
@@ -49,22 +46,20 @@ export function listProjects(db: PlannerDb): Project[] {
 }
 
 export function getProject(db: PlannerDb, id: string): Project | undefined {
-  const row = db.prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as
-    | ProjectRow
-    | undefined;
+  const row = db.prepare(`SELECT * FROM projects WHERE id = ?`).get(id) as ProjectRow | undefined;
   return row ? rowToProject(row) : undefined;
 }
 
 export function updateProjectProgress(
   db: PlannerDb,
   id: string,
-  progress: number
+  progress: number,
 ): Project | undefined {
   const now = new Date().toISOString();
   db.prepare(`UPDATE projects SET progress = ?, updated_at = ? WHERE id = ?`).run(
     progress,
     now,
-    id
+    id,
   );
   return getProject(db, id);
 }
@@ -72,17 +67,19 @@ export function updateProjectProgress(
 export function updateProject(
   db: PlannerDb,
   id: string,
-  input: { name?: string; goal?: string; progress?: number }
+  input: { name?: string; goal?: string; progress?: number },
 ): Project | undefined {
   const current = getProject(db, id);
   if (!current) return undefined;
   const now = new Date().toISOString();
-  db.prepare(`UPDATE projects SET name = ?, goal = ?, progress = ?, updated_at = ? WHERE id = ?`).run(
+  db.prepare(
+    `UPDATE projects SET name = ?, goal = ?, progress = ?, updated_at = ? WHERE id = ?`,
+  ).run(
     input.name ?? current.name,
     input.goal ?? current.goal ?? null,
     input.progress ?? current.progress,
     now,
-    id
+    id,
   );
   return getProject(db, id);
 }

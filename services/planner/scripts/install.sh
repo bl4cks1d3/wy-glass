@@ -13,6 +13,7 @@ PIPER_RELEASE="2023.11.14-2"
 CHECK_ONLY=0
 WITH_VOICE=0
 NO_DESKTOP=0
+WITH_MCP=0
 ASSUME_YES=0
 
 usage() {
@@ -22,6 +23,7 @@ Uso: scripts/install.sh [opcoes]
   --check        so verifica os pre-requisitos, sem instalar nada
   --with-voice   baixa o Piper e a voz pt-BR (~85 MB) para o TTS local
   --no-desktop   nao instala o app Electron (pula o download de ~100 MB)
+  --with-mcp     registra o MCP do Planner no Claude Code (caminho absoluto; manual: pnpm mcp:install)
   --yes          nao faz perguntas (usa os padroes; nao pede chave de IA)
   -h, --help     mostra esta ajuda
 EOF
@@ -32,6 +34,7 @@ for arg in "$@"; do
     --check) CHECK_ONLY=1 ;;
     --with-voice) WITH_VOICE=1 ;;
     --no-desktop) NO_DESKTOP=1 ;;
+    --with-mcp) WITH_MCP=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "opcao desconhecida: $arg" >&2; usage >&2; exit 2 ;;
@@ -161,6 +164,8 @@ chmod 600 .env 2>/dev/null || true
 step "Compilando o pacote compartilhado"
 pnpm --filter @planner-life/shared build
 ok "@planner-life/shared compilado"
+pnpm --filter @planner-life/mcp build
+ok "@planner-life/mcp compilado (servidor MCP do Claude Code)"
 
 # ---------------------------------------------------------------- voz (opcional)
 download() {
@@ -219,6 +224,23 @@ elif interactive; then
   case "$REPLY" in
     s|S|y|Y) step "Instalando a voz local (Piper)"; install_voice ;;
     *) warn "voz pulada (rode de novo com --with-voice quando quiser)" ;;
+  esac
+fi
+
+# ---------------------------------------------------------------- MCP no Claude Code (opcional)
+install_mcp() {
+  node scripts/install-mcp.mjs || warn "nao consegui registrar o MCP agora (rode depois: pnpm mcp:install)"
+}
+
+if [ "$WITH_MCP" -eq 1 ]; then
+  step "Registrando o MCP do Planner no Claude Code"
+  if command -v claude >/dev/null 2>&1; then install_mcp; else warn "Claude Code nao encontrado: instale-o e rode pnpm mcp:install"; fi
+elif interactive && command -v claude >/dev/null 2>&1; then
+  echo
+  read -rp "Registrar o MCP do Planner no Claude Code (funciona em qualquer pasta)? [s/N] " REPLY
+  case "$REPLY" in
+    s|S|y|Y) step "Registrando o MCP do Planner no Claude Code"; install_mcp ;;
+    *) warn "MCP nao registrado (rode depois: pnpm mcp:install)" ;;
   esac
 fi
 

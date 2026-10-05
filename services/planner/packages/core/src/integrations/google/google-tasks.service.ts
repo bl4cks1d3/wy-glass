@@ -1,14 +1,14 @@
-import { Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
-import { GoogleAuthService } from "./google-auth.service";
+import { Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { GoogleAuthService } from './google-auth.service';
 
-const TASKS_API = "https://tasks.googleapis.com/tasks/v1";
+const TASKS_API = 'https://tasks.googleapis.com/tasks/v1';
 
 export interface GoogleTask {
   id: string;
   title: string;
   notes?: string;
   due?: string;
-  status: "needsAction" | "completed";
+  status: 'needsAction' | 'completed';
   account: string;
 }
 
@@ -18,7 +18,7 @@ interface GTasksListResponse {
     title?: string;
     notes?: string;
     due?: string;
-    status?: "needsAction" | "completed";
+    status?: 'needsAction' | 'completed';
   }[];
 }
 
@@ -36,7 +36,7 @@ export class GoogleTasksService {
   private defaultAccount(): string {
     const [account] = this.googleAuth.listAccounts();
     if (!account) {
-      throw new NotFoundException("Nenhuma conta Google conectada.");
+      throw new NotFoundException('Nenhuma conta Google conectada.');
     }
     return account.email;
   }
@@ -47,12 +47,14 @@ export class GoogleTasksService {
       ...init,
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         ...(init?.headers ?? {}),
       },
     });
     if (!res.ok) {
-      throw new InternalServerErrorException(`Google Tasks API respondeu ${res.status}: ${await res.text()}`);
+      throw new InternalServerErrorException(
+        `Google Tasks API respondeu ${res.status}: ${await res.text()}`,
+      );
     }
     if (res.status === 204) return undefined;
     return res.json();
@@ -60,61 +62,85 @@ export class GoogleTasksService {
 
   async list(email?: string): Promise<GoogleTask[]> {
     const account = email ?? this.defaultAccount();
-    const data = (await this.tasksFetch("/lists/@default/tasks?showCompleted=true&showHidden=true", account)) as
-      | GTasksListResponse
-      | undefined;
+    const data = (await this.tasksFetch(
+      '/lists/@default/tasks?showCompleted=true&showHidden=true',
+      account,
+    )) as GTasksListResponse | undefined;
     return (data?.items ?? []).map((t) => ({
       id: t.id,
-      title: t.title ?? "(sem titulo)",
+      title: t.title ?? '(sem titulo)',
       notes: t.notes,
       due: t.due,
-      status: t.status ?? "needsAction",
+      status: t.status ?? 'needsAction',
       account,
     }));
   }
 
-  async create(input: { title: string; notes?: string; due?: string; account?: string }): Promise<GoogleTask> {
+  async create(input: {
+    title: string;
+    notes?: string;
+    due?: string;
+    account?: string;
+  }): Promise<GoogleTask> {
     const account = input.account ?? this.defaultAccount();
-    const data = (await this.tasksFetch("/lists/@default/tasks", account, {
-      method: "POST",
+    const data = (await this.tasksFetch('/lists/@default/tasks', account, {
+      method: 'POST',
       body: JSON.stringify({ title: input.title, notes: input.notes, due: input.due }),
-    })) as { id: string; title: string; notes?: string; due?: string; status?: "needsAction" | "completed" };
+    })) as {
+      id: string;
+      title: string;
+      notes?: string;
+      due?: string;
+      status?: 'needsAction' | 'completed';
+    };
     return {
       id: data.id,
       title: data.title,
       notes: data.notes,
       due: data.due,
-      status: data.status ?? "needsAction",
+      status: data.status ?? 'needsAction',
       account,
     };
   }
 
   async update(
     id: string,
-    input: { title?: string; notes?: string; due?: string; status?: "needsAction" | "completed"; account?: string }
+    input: {
+      title?: string;
+      notes?: string;
+      due?: string;
+      status?: 'needsAction' | 'completed';
+      account?: string;
+    },
   ): Promise<GoogleTask> {
     const account = input.account ?? this.defaultAccount();
     const data = (await this.tasksFetch(`/lists/@default/tasks/${id}`, account, {
-      method: "PATCH",
+      method: 'PATCH',
       body: JSON.stringify({
         title: input.title,
         notes: input.notes,
         due: input.due,
         status: input.status,
       }),
-    })) as { id: string; title: string; notes?: string; due?: string; status?: "needsAction" | "completed" };
+    })) as {
+      id: string;
+      title: string;
+      notes?: string;
+      due?: string;
+      status?: 'needsAction' | 'completed';
+    };
     return {
       id: data.id,
       title: data.title,
       notes: data.notes,
       due: data.due,
-      status: data.status ?? "needsAction",
+      status: data.status ?? 'needsAction',
       account,
     };
   }
 
   async remove(id: string, email?: string): Promise<void> {
     const account = email ?? this.defaultAccount();
-    await this.tasksFetch(`/lists/@default/tasks/${id}`, account, { method: "DELETE" });
+    await this.tasksFetch(`/lists/@default/tasks/${id}`, account, { method: 'DELETE' });
   }
 }

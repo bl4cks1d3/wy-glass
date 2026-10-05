@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 
 export interface AgentNotification {
   id: string;

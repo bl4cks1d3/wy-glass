@@ -1,10 +1,10 @@
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { execFile } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-export type ClaudeCodeActionStatus = "pending" | "running" | "done" | "error" | "rejected";
+export type ClaudeCodeActionStatus = 'pending' | 'running' | 'done' | 'error' | 'rejected';
 
 export interface ClaudeCodeAction {
   id: string;
@@ -16,11 +16,11 @@ export interface ClaudeCodeAction {
   error?: string;
   /** "research": ao confirmar, salva o output como nota + artigo em Pesquisa
    * automaticamente, em vez de so mostrar o texto bruto no card. */
-  kind?: "research";
+  kind?: 'research';
   meta?: { theme?: string };
 }
 
-const CORE_API_URL = process.env.CORE_API_URL ?? "http://localhost:4000";
+const CORE_API_URL = process.env.CORE_API_URL ?? 'http://localhost:4000';
 
 /**
  * No Windows, "claude" e um shim .cmd que so acha a versao mais recente e
@@ -33,8 +33,8 @@ const CORE_API_URL = process.env.CORE_API_URL ?? "http://localhost:4000";
  * na pasta de instalacao mais recente) e chamar ELE direto, sem shell.
  */
 function resolveClaudeBin(): string {
-  if (process.platform !== "win32") return "claude";
-  const base = path.join(process.env.APPDATA ?? "", "Claude", "claude-code");
+  if (process.platform !== 'win32') return 'claude';
+  const base = path.join(process.env.APPDATA ?? '', 'Claude', 'claude-code');
   try {
     const versions = fs
       .readdirSync(base, { withFileTypes: true })
@@ -43,13 +43,13 @@ function resolveClaudeBin(): string {
       .sort()
       .reverse();
     for (const version of versions) {
-      const exePath = path.join(base, version, "claude.exe");
+      const exePath = path.join(base, version, 'claude.exe');
       if (fs.existsSync(exePath)) return exePath;
     }
   } catch {
     // cai pro fallback abaixo (vai falhar com uma mensagem clara se nao existir)
   }
-  return "claude.exe";
+  return 'claude.exe';
 }
 
 /**
@@ -68,15 +68,15 @@ export class ClaudeCodeService {
   createPending(
     prompt: string,
     cwd?: string,
-    kind?: ClaudeCodeAction["kind"],
-    meta?: ClaudeCodeAction["meta"]
+    kind?: ClaudeCodeAction['kind'],
+    meta?: ClaudeCodeAction['meta'],
   ): ClaudeCodeAction {
     const id = randomUUID();
     const action: ClaudeCodeAction = {
       id,
       prompt,
       cwd: cwd?.trim() || process.env.CLAUDE_CODE_CWD || process.cwd(),
-      status: "pending",
+      status: 'pending',
       createdAt: new Date().toISOString(),
       kind,
       meta,
@@ -93,7 +93,7 @@ export class ClaudeCodeService {
       `preciso em markdown (comece com "# ${theme}", use secoes com "##"). Devolva ` +
       `SOMENTE o conteudo em markdown como resposta final -- sem nenhum comentario, ` +
       `saudacao ou explicacao antes ou depois do markdown.\n\nTema: ${theme}`;
-    return this.createPending(prompt, undefined, "research", { theme });
+    return this.createPending(prompt, undefined, 'research', { theme });
   }
 
   /** Terminal direto: o usuario escreveu e enviou o prompt ele mesmo, entao
@@ -107,58 +107,60 @@ export class ClaudeCodeService {
 
   listPending(): ClaudeCodeAction[] {
     return [...this.actions.values()]
-      .filter((a) => a.status === "pending")
+      .filter((a) => a.status === 'pending')
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }
 
   reject(id: string): ClaudeCodeAction {
     const action = this.mustGet(id);
-    action.status = "rejected";
+    action.status = 'rejected';
     return action;
   }
 
   async confirm(id: string): Promise<ClaudeCodeAction> {
     const action = this.mustGet(id);
-    action.status = "running";
+    action.status = 'running';
     try {
       action.output = await this.run(action.prompt, action.cwd);
-      action.status = "done";
-      if (action.kind === "research") {
+      action.status = 'done';
+      if (action.kind === 'research') {
         await this.saveAsResearchNote(action);
       }
     } catch (err) {
       action.error = err instanceof Error ? err.message : String(err);
-      action.status = "error";
+      action.status = 'error';
       this.logger.error(action.error);
     }
     return action;
   }
 
   private async saveAsResearchNote(action: ClaudeCodeAction): Promise<void> {
-    const theme = action.meta?.theme ?? "Pesquisa";
+    const theme = action.meta?.theme ?? 'Pesquisa';
     const content = action.output?.trim();
     if (!content) return;
     const slug = theme
       .toLowerCase()
-      .normalize("NFD")
-      .replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
       .slice(0, 60);
-    const notePath = `Pesquisas/${slug || "pesquisa"}-${Date.now()}.md`;
+    const notePath = `Pesquisas/${slug || 'pesquisa'}-${Date.now()}.md`;
     try {
       await fetch(`${CORE_API_URL}/vault/note`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: notePath, content }),
       });
       await fetch(`${CORE_API_URL}/research/papers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: theme, status: "resumido", notePath }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: theme, status: 'resumido', notePath }),
       });
     } catch (err) {
-      this.logger.error(`falha ao salvar pesquisa "${theme}" como nota: ${err instanceof Error ? err.message : err}`);
+      this.logger.error(
+        `falha ao salvar pesquisa "${theme}" como nota: ${err instanceof Error ? err.message : err}`,
+      );
     }
   }
 
@@ -172,7 +174,7 @@ export class ClaudeCodeService {
     return new Promise((resolve, reject) => {
       execFile(
         resolveClaudeBin(),
-        ["-p", prompt],
+        ['-p', prompt],
         { cwd, timeout: 5 * 60 * 1000, maxBuffer: 10 * 1024 * 1024, windowsHide: true },
         (err, stdout, stderr) => {
           if (err) {
@@ -180,7 +182,7 @@ export class ClaudeCodeService {
             return;
           }
           resolve(stdout.trim() || stderr.trim());
-        }
+        },
       );
     });
   }

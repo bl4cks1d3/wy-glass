@@ -1,8 +1,13 @@
-import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from "@nestjs/common";
-import { GoogleAuthService } from "./google-auth.service";
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { GoogleAuthService } from './google-auth.service';
 
-const CALENDAR_LIST_API = "https://www.googleapis.com/calendar/v3/users/me/calendarList";
-const CALENDAR_EVENTS_API = "https://www.googleapis.com/calendar/v3/calendars";
+const CALENDAR_LIST_API = 'https://www.googleapis.com/calendar/v3/users/me/calendarList';
+const CALENDAR_EVENTS_API = 'https://www.googleapis.com/calendar/v3/calendars';
 
 export interface CalendarEvent {
   id: string;
@@ -41,12 +46,14 @@ export class CalendarService {
       ...init,
       headers: {
         Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
         ...(init?.headers ?? {}),
       },
     });
     if (!res.ok) {
-      throw new InternalServerErrorException(`Calendar API respondeu ${res.status}: ${await res.text()}`);
+      throw new InternalServerErrorException(
+        `Calendar API respondeu ${res.status}: ${await res.text()}`,
+      );
     }
     if (res.status === 204) return undefined;
     return res.json();
@@ -55,15 +62,15 @@ export class CalendarService {
   private defaultAccount(): string {
     const [account] = this.googleAuth.listAccounts();
     if (!account) {
-      throw new NotFoundException("Nenhuma conta Google conectada.");
+      throw new NotFoundException('Nenhuma conta Google conectada.');
     }
     return account.email;
   }
 
   /** O id de evento exposto pro resto do app e "calendarId:eventId" (ver listEventsFromCalendar). */
   private splitCompositeId(compositeId: string): { calendarId: string; eventId: string } {
-    const idx = compositeId.indexOf(":");
-    if (idx === -1) throw new BadRequestException("id de evento invalido");
+    const idx = compositeId.indexOf(':');
+    if (idx === -1) throw new BadRequestException('id de evento invalido');
     return { calendarId: compositeId.slice(0, idx), eventId: compositeId.slice(idx + 1) };
   }
 
@@ -83,19 +90,21 @@ export class CalendarService {
     email: string,
     calendarId: string,
     calendarName: string,
-    maxResults: number
+    maxResults: number,
   ): Promise<CalendarEvent[]> {
     const params = new URLSearchParams({
       timeMin: new Date().toISOString(),
       maxResults: String(maxResults),
-      singleEvents: "true",
-      orderBy: "startTime",
+      singleEvents: 'true',
+      orderBy: 'startTime',
     });
     const url = `${CALENDAR_EVENTS_API}/${encodeURIComponent(calendarId)}/events?${params.toString()}`;
-    const data = (await this.googleFetch(url, email).catch(() => ({ items: [] }))) as GCalEventsResponse;
+    const data = (await this.googleFetch(url, email).catch(() => ({
+      items: [],
+    }))) as GCalEventsResponse;
     return (data.items ?? []).map((item) => ({
       id: `${calendarId}:${item.id}`,
-      title: item.summary ?? "(sem titulo)",
+      title: item.summary ?? '(sem titulo)',
       start: item.start?.dateTime ?? item.start?.date ?? new Date().toISOString(),
       end: item.end?.dateTime ?? item.end?.date,
       location: item.location,
@@ -107,7 +116,7 @@ export class CalendarService {
   private async listForAccount(email: string, maxResults: number): Promise<CalendarEvent[]> {
     const calendars = await this.listCalendars(email);
     const perCalendar = await Promise.all(
-      calendars.map((cal) => this.listEventsFromCalendar(email, cal.id, cal.name, maxResults))
+      calendars.map((cal) => this.listEventsFromCalendar(email, cal.id, cal.name, maxResults)),
     );
     return perCalendar.flat();
   }
@@ -115,12 +124,56 @@ export class CalendarService {
   async listUpcoming(maxResults = 10): Promise<CalendarEvent[]> {
     const accounts = this.googleAuth.listAccounts().map((a) => a.email);
     const perAccount = await Promise.all(
-      accounts.map((email) => this.listForAccount(email, maxResults).catch(() => []))
+      accounts.map((email) => this.listForAccount(email, maxResults).catch(() => [])),
     );
     return perAccount
       .flat()
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
       .slice(0, maxResults);
+  }
+
+  /**
+   * Eventos de todas as agendas entre `from` e `to` (a semana exibida no
+   * Brain Office). Diferente de listUpcoming, nao engole falhas: devolve o erro
+   * de cada conta (ex.: token expirado) para a tela mostrar e pedir reconexao.
+   */
+  async listRange(
+    from: string,
+    to: string,
+  ): Promise<{ events: CalendarEvent[]; errors: { account: string; message: string }[] }> {
+    const errors: { account: string; message: string }[] = [];
+    const events: CalendarEvent[] = [];
+    for (const { email } of this.googleAuth.listAccounts()) {
+      try {
+        const calendars = await this.listCalendars(email);
+        for (const cal of calendars) {
+          const params = new URLSearchParams({
+            timeMin: from,
+            timeMax: to,
+            maxResults: '250',
+            singleEvents: 'true',
+            orderBy: 'startTime',
+          });
+          const url = `${CALENDAR_EVENTS_API}/${encodeURIComponent(cal.id)}/events?${params.toString()}`;
+          const data = (await this.googleFetch(url, email)) as GCalEventsResponse;
+          for (const item of data.items ?? []) {
+            events.push({
+              id: `${cal.id}:${item.id}`,
+              title: item.summary ?? '(sem titulo)',
+              start: item.start?.dateTime ?? item.start?.date ?? from,
+              end: item.end?.dateTime ?? item.end?.date,
+              location: item.location,
+              account: email,
+              calendarName: cal.name,
+            });
+          }
+        }
+      } catch (err) {
+        errors.push({ account: email, message: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    events.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    return { events, errors };
   }
 
   /** Cria sempre no calendario "primary" (agenda pessoal principal da conta). */
@@ -133,7 +186,7 @@ export class CalendarService {
   }): Promise<CalendarEvent> {
     const account = input.account ?? this.defaultAccount();
     const data = (await this.googleFetch(`${CALENDAR_EVENTS_API}/primary/events`, account, {
-      method: "POST",
+      method: 'POST',
       body: JSON.stringify({
         summary: input.title,
         description: input.description,
@@ -148,13 +201,13 @@ export class CalendarService {
       end: data.end?.dateTime ?? input.end,
       location: data.location,
       account,
-      calendarName: "primary",
+      calendarName: 'primary',
     };
   }
 
   async update(
     compositeId: string,
-    input: { title?: string; start?: string; end?: string; description?: string; account?: string }
+    input: { title?: string; start?: string; end?: string; description?: string; account?: string },
   ): Promise<CalendarEvent> {
     const account = input.account ?? this.defaultAccount();
     const { calendarId, eventId } = this.splitCompositeId(compositeId);
@@ -167,11 +220,11 @@ export class CalendarService {
     const data = (await this.googleFetch(
       `${CALENDAR_EVENTS_API}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       account,
-      { method: "PATCH", body: JSON.stringify(body) }
+      { method: 'PATCH', body: JSON.stringify(body) },
     )) as GCalEventDetail;
     return {
       id: compositeId,
-      title: data.summary ?? "(sem titulo)",
+      title: data.summary ?? '(sem titulo)',
       start: data.start?.dateTime ?? data.start?.date ?? new Date().toISOString(),
       end: data.end?.dateTime ?? data.end?.date,
       location: data.location,
@@ -186,7 +239,7 @@ export class CalendarService {
     await this.googleFetch(
       `${CALENDAR_EVENTS_API}/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
       acc,
-      { method: "DELETE" }
+      { method: 'DELETE' },
     );
   }
 }

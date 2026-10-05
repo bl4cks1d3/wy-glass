@@ -1,25 +1,25 @@
-import { Inject, Injectable, InternalServerErrorException } from "@nestjs/common";
-import type { PlannerDb } from "../../db";
-import { PLANNER_DB } from "../../database/database.module";
+import { Inject, Injectable, InternalServerErrorException } from '@nestjs/common';
+import type { PlannerDb } from '../../db';
+import { PLANNER_DB } from '../../database/database.module';
 import {
   deleteIntegrationToken,
   getIntegrationToken,
   listIntegrationTokensByPrefix,
   saveIntegrationToken,
-} from "../../repositories/integration-tokens";
+} from '../../repositories/integration-tokens';
 
-const KEY_PREFIX = "google:";
+const KEY_PREFIX = 'google:';
 const SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
+  'https://www.googleapis.com/auth/gmail.readonly',
   // calendar (nao so calendar.readonly) -- o agente cria/move/cancela evento,
   // nao so le. Contas conectadas antes dessa mudanca precisam reconectar.
-  "https://www.googleapis.com/auth/calendar",
-  "https://www.googleapis.com/auth/tasks",
-  "https://www.googleapis.com/auth/userinfo.email",
-].join(" ");
-const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo";
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/tasks',
+  'https://www.googleapis.com/auth/userinfo.email',
+].join(' ');
+const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
 
 interface TokenResponse {
   access_token: string;
@@ -46,31 +46,32 @@ export class GoogleAuthService {
 
   private get clientId(): string {
     const id = process.env.GOOGLE_CLIENT_ID;
-    if (!id) throw new InternalServerErrorException("GOOGLE_CLIENT_ID nao configurado no .env");
+    if (!id) throw new InternalServerErrorException('GOOGLE_CLIENT_ID nao configurado no .env');
     return id;
   }
 
   private get clientSecret(): string {
     const secret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!secret) throw new InternalServerErrorException("GOOGLE_CLIENT_SECRET nao configurado no .env");
+    if (!secret)
+      throw new InternalServerErrorException('GOOGLE_CLIENT_SECRET nao configurado no .env');
     return secret;
   }
 
   private get redirectUri(): string {
-    return process.env.GOOGLE_REDIRECT_URI ?? "http://localhost:4000/integrations/google/callback";
+    return process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:4000/integrations/google/callback';
   }
 
   buildAuthUrl(): string {
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: this.redirectUri,
-      response_type: "code",
+      response_type: 'code',
       scope: SCOPES,
-      access_type: "offline",
+      access_type: 'offline',
       // select_account forca o Google a mostrar o seletor de conta mesmo se
       // ja houver uma sessao ativa -- e o que permite conectar uma segunda
       // conta em vez de sempre reautorizar a mesma.
-      prompt: "consent select_account",
+      prompt: 'consent select_account',
     });
     return `${AUTH_URL}?${params.toString()}`;
   }
@@ -81,14 +82,14 @@ export class GoogleAuthService {
    */
   async exchangeCode(code: string): Promise<string> {
     const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
         client_id: this.clientId,
         client_secret: this.clientSecret,
         redirect_uri: this.redirectUri,
-        grant_type: "authorization_code",
+        grant_type: 'authorization_code',
       }),
     });
     if (!res.ok) {
@@ -100,7 +101,9 @@ export class GoogleAuthService {
       headers: { Authorization: `Bearer ${data.access_token}` },
     });
     if (!userinfoRes.ok) {
-      throw new InternalServerErrorException(`falha ao identificar a conta Google: ${await userinfoRes.text()}`);
+      throw new InternalServerErrorException(
+        `falha ao identificar a conta Google: ${await userinfoRes.text()}`,
+      );
     }
     const userinfo = (await userinfoRes.json()) as { email: string };
 
@@ -150,22 +153,24 @@ export class GoogleAuthService {
     }
     if (!token.refreshToken) {
       throw new InternalServerErrorException(
-        `Token da conta "${email}" expirou e nao ha refresh_token salvo. Reautorize em /integrations/google/auth.`
+        `Token da conta "${email}" expirou e nao ha refresh_token salvo. Reautorize em /integrations/google/auth.`,
       );
     }
 
     const res = await fetch(TOKEN_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         refresh_token: token.refreshToken,
         client_id: this.clientId,
         client_secret: this.clientSecret,
-        grant_type: "refresh_token",
+        grant_type: 'refresh_token',
       }),
     });
     if (!res.ok) {
-      throw new InternalServerErrorException(`falha ao renovar token de "${email}": ${await res.text()}`);
+      throw new InternalServerErrorException(
+        `falha ao renovar token de "${email}": ${await res.text()}`,
+      );
     }
     const data = (await res.json()) as TokenResponse;
     this.storeToken(email, { ...data, refresh_token: data.refresh_token ?? token.refreshToken });

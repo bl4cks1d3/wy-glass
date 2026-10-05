@@ -17,7 +17,7 @@
     "@libp2p/interface": "^2.11.0",
     "@libp2p/mdns": "^11.0.47",
     "@libp2p/tcp": "^10.1.19",
-    "@planner-life/shared": "workspace:*",
+    "@planner-life/shared": "*",
     "dotenv": "^16.4.7",
     "libp2p": "^2.10.0"
   },

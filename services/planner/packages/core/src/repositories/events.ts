@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { PlannerEvent, PlpEventType } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { PlannerEvent, PlpEventType } from '@planner-life/shared';
 
 interface EventRow {
   id: string;
@@ -24,7 +24,7 @@ export function recordEvent(
   db: PlannerDb,
   type: PlpEventType,
   payload: Record<string, unknown>,
-  origin = "planner-core"
+  origin = 'planner-core',
 ): PlannerEvent {
   const now = new Date().toISOString();
   const row: EventRow = {
@@ -35,7 +35,7 @@ export function recordEvent(
     created_at: now,
   };
   db.prepare(
-    `INSERT INTO events (id, type, payload, origin, created_at) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO events (id, type, payload, origin, created_at) VALUES (?, ?, ?, ?, ?)`,
   ).run(row.id, row.type, row.payload, row.origin, row.created_at);
   return rowToEvent(row);
 }

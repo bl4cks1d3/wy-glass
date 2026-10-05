@@ -1,7 +1,7 @@
-import { Module } from "@nestjs/common";
-import { EventsModule } from "../events/events.module";
-import { MessagesService } from "./messages.service";
-import { MessagesController } from "./messages.controller";
+import { Module } from '@nestjs/common';
+import { EventsModule } from '../events/events.module';
+import { MessagesService } from './messages.service';
+import { MessagesController } from './messages.controller';
 
 @Module({
   imports: [EventsModule],

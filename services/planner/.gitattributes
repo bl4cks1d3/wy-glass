@@ -1,3 +1,0 @@
-# Shell scripts precisam de fim de linha LF mesmo quando clonados no Windows,
-# senao o bash quebra com "\r: command not found".
-*.sh text eol=lf

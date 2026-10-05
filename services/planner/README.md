@@ -25,6 +25,7 @@ planner-life/
 │   ├── agent/      # Personal Agent: NestJS, harness com MCP + Skills sobre Groq/Gemini/Claude
 │   │   └── skills/ # Pacotes de instrucoes (SKILL.md) carregados sob demanda
 │   ├── voice/      # TTS local em portugues (Piper) - POST /speak
+│   ├── terminal/   # Terminais PTY (xterm.js no dashboard) - so loopback
 │   └── p2p-node/   # No de rede P2P (libp2p) - roda no PC e no Raspberry Pi
 ├── apps/
 │   ├── web/        # Dashboard (Next.js) - agenda, projetos, "Planejar meu dia"
@@ -32,13 +33,14 @@ planner-life/
 └── .mcp.json       # Servidores MCP que o Personal Agent conecta como cliente
 ```
 
-| Pacote | Stack | Porta padrao |
-| --- | --- | --- |
-| `@planner-life/core` | NestJS + `node:sqlite` | 4000 |
-| `@planner-life/agent` | NestJS + Groq/Gemini/Claude (plugavel), harness MCP + Skills | 4100 |
-| `@planner-life/voice` | NestJS + Piper (TTS local, pt-BR) | 4200 |
-| `@planner-life/p2p-node` | libp2p (TCP + mDNS + gossipsub) | 4400 (TCP), 4401 (bridge HTTP) |
-| `@planner-life/web` | Next.js (App Router) | 4300 |
+| Pacote                   | Stack                                                        | Porta padrao                   |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------ |
+| `@planner-life/core`     | NestJS + `node:sqlite`                                       | 4000                           |
+| `@planner-life/agent`    | NestJS + Groq/Gemini/Claude (plugavel), harness MCP + Skills | 4100                           |
+| `@planner-life/voice`    | NestJS + Piper (TTS local, pt-BR)                            | 4200                           |
+| `@planner-life/p2p-node` | libp2p (TCP + mDNS + gossipsub)                              | 4400 (TCP), 4401 (bridge HTTP) |
+| `@planner-life/terminal` | node-pty + WebSocket (terminais do dashboard)                | 4500 (so 127.0.0.1)            |
+| `@planner-life/web`      | Next.js (App Router)                                         | 4300                           |
 
 ## Como rodar
 
@@ -141,7 +143,7 @@ Para conversar com o Personal Agent direto pelo terminal (sem passar pela
 web):
 
 ```bash
-pnpm --filter @planner-life/agent cli
+pnpm cli   # o mesmo que: pnpm --filter @planner-life/agent cli
 ```
 
 ### Harness: MCP e Skills
@@ -262,6 +264,28 @@ essa e a base da "Rede P2P" da visao do projeto.
 - [x] Bridge automatico `core -> p2p-node`: todo evento do
       `PlannerEventBus` (tarefas, projetos, memoria, clientes, habitos,
       pesquisa...) e publicado de verdade na rede PLP via gossipsub
+- [x] Terminal embutido no dashboard, no estilo canvas do Maestri: varios
+      terminais reais (Claude Code interativo, Agente Planner, Shell)
+      arrastaveis e redimensionaveis, que continuam rodando ao trocar de
+      aba ou recarregar a pagina (servico `packages/terminal`, so loopback)
+- [x] Construtor de blocos e paineis: dashboard maleavel em modo Dashboard
+      (grade) e modo Canvas, blocos em HTML+CSS+JS isolados (sandbox + CSP)
+      com design system, modais e permissoes; painel Basico embutido
+      (docs/BUILDER.md)
+- [x] Visual estilo Maestri: tema escuro (claro alternavel), barra lateral
+      com workspaces e modulos, e o **workspace** como tela principal — canvas
+      infinito com terminais reais, blocos do Construtor e notas, zoom
+      (Ctrl + roda), minimapa e camadas; layout salvo no Core e protegido
+      contra sobrescrita por outra janela (docs/SPEC.md RF-19)
+- [x] Automacoes nativas no canvas (grafo de nos estilo n8n, editor React Flow): descreva em portugues ao Claude Code
+      (terminal + editor lado a lado) e a automacao aparece como rascunho para voce ativar; avisos e temporizadores (docs/AUTOMATIONS.md)
+- [x] Chamada de voz (Gemini Live): converse por voz e o assistente chama as
+      ferramentas do Planner (notas, agenda, pesquisa...) (docs/VOICE-CALL.md)
+- [x] `pnpm mcp:install`: registra o MCP do Planner no Claude Code em qualquer
+      pasta
+- [x] Banco sob medida: colecoes com esquema que os blocos leem e gravam
+- [x] Servidor MCP do Planner Life: descreva sua situacao ao Claude Code e ele
+      monta banco, blocos e painel em canvas (docs/MCP.md)
 
 ## Proximos passos
 

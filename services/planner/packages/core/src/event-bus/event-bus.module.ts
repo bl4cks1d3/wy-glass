@@ -1,5 +1,5 @@
-import { Global, Module } from "@nestjs/common";
-import { PlannerEventBus } from "../eventBus";
+import { Global, Module } from '@nestjs/common';
+import { PlannerEventBus } from '../eventBus';
 
 @Global()
 @Module({

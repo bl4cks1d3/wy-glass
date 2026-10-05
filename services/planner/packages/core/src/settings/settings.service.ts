@@ -1,14 +1,20 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { parse } from "dotenv";
-import * as fs from "node:fs";
-import * as path from "node:path";
+import { Injectable, Logger } from '@nestjs/common';
+import { parse } from 'dotenv';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const ENV_PATH = path.resolve(__dirname, "../../../../.env");
+// Brain Office passes its root .env (BRAIN_ENV_PATH); standalone Planner keeps its own.
+const ENV_PATH = process.env.BRAIN_ENV_PATH ?? path.resolve(__dirname, '../../../../.env');
 
 /** Chaves que guardam segredo -- nunca voltam pro navegador em texto puro,
  * so um indicador de que estao preenchidas. Mandar API key de volta pra
  * tela toda vez que alguem abre Configuracoes e exposicao desnecessaria. */
-const SECRET_KEYS = new Set(["GROQ_API_KEY", "GEMINI_API_KEY", "ANTHROPIC_API_KEY"]);
+const SECRET_KEYS = new Set([
+  'GROQ_API_KEY',
+  'GEMINI_API_KEY',
+  'GEMINI_LIVE_API_KEY',
+  'ANTHROPIC_API_KEY',
+]);
 
 export interface SettingField {
   key: string;
@@ -23,7 +29,7 @@ export class SettingsService {
 
   private readAll(): Record<string, string> {
     if (!fs.existsSync(ENV_PATH)) return {};
-    return parse(fs.readFileSync(ENV_PATH, "utf8"));
+    return parse(fs.readFileSync(ENV_PATH, 'utf8'));
   }
 
   /** So devolve as chaves que a tela de Configuracoes sabe editar --
@@ -31,7 +37,7 @@ export class SettingsService {
   getAll(keys: string[]): SettingField[] {
     const env = this.readAll();
     return keys.map((key) => {
-      const raw = env[key]?.trim() || "";
+      const raw = env[key]?.trim() || '';
       const isSecret = SECRET_KEYS.has(key);
       return {
         key,
@@ -46,18 +52,20 @@ export class SettingsService {
    * faltar), preservando comentarios e o resto do arquivo intactos. Vazio
    * ("") apaga a chave: `env[KEY]=` no arquivo. */
   update(updates: Record<string, string>): void {
-    let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
+    let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf8') : '';
     for (const [key, value] of Object.entries(updates)) {
-      const escaped = value.replace(/\r?\n/g, " ").trim();
+      const escaped = value.replace(/\r?\n/g, ' ').trim();
       const line = `${key}=${escaped}`;
-      const pattern = new RegExp(`^${key}=.*$`, "m");
+      const pattern = new RegExp(`^${key}=.*$`, 'm');
       if (pattern.test(content)) {
         content = content.replace(pattern, line);
       } else {
         content = content.trimEnd() + `\n${line}\n`;
       }
     }
-    fs.writeFileSync(ENV_PATH, content, "utf8");
-    this.logger.log(`configuracoes atualizadas: ${Object.keys(updates).join(", ")} -- reinicie os servicos afetados`);
+    fs.writeFileSync(ENV_PATH, content, 'utf8');
+    this.logger.log(
+      `configuracoes atualizadas: ${Object.keys(updates).join(', ')} -- reinicie os servicos afetados`,
+    );
   }
 }

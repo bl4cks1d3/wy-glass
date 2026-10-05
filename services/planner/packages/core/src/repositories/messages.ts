@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { InboxMessage } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { InboxMessage } from '@planner-life/shared';
 
 interface MessageRow {
   id: string;
@@ -38,7 +38,7 @@ export function upsertMessage(
     tag?: string;
     action?: string;
     receivedAt: string;
-  }
+  },
 ): InboxMessage {
   const now = new Date().toISOString();
   const id = input.id ?? randomUUID();
@@ -51,7 +51,7 @@ export function upsertMessage(
        snippet = excluded.snippet,
        tag = excluded.tag,
        action = excluded.action,
-       received_at = excluded.received_at`
+       received_at = excluded.received_at`,
   ).run(
     id,
     input.from,
@@ -60,7 +60,7 @@ export function upsertMessage(
     input.tag ?? null,
     input.action ?? null,
     input.receivedAt,
-    now
+    now,
   );
   return getMessage(db, id) as InboxMessage;
 }
@@ -77,7 +77,11 @@ export function getMessage(db: PlannerDb, id: string): InboxMessage | undefined 
   return row ? rowToMessage(row) : undefined;
 }
 
-export function setMessageHandled(db: PlannerDb, id: string, handled: boolean): InboxMessage | undefined {
+export function setMessageHandled(
+  db: PlannerDb,
+  id: string,
+  handled: boolean,
+): InboxMessage | undefined {
   db.prepare(`UPDATE messages SET handled = ? WHERE id = ?`).run(handled ? 1 : 0, id);
   return getMessage(db, id);
 }

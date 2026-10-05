@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
-import { EventEmitter } from "node:events";
-import type { PlpEventType } from "@planner-life/shared";
+import { Injectable } from '@nestjs/common';
+import { EventEmitter } from 'node:events';
+import type { PlpEventType } from '@planner-life/shared';
 
 /**
  * Barramento de eventos em processo. O Planner Core emite eventos de
@@ -11,6 +11,6 @@ import type { PlpEventType } from "@planner-life/shared";
 @Injectable()
 export class PlannerEventBus extends EventEmitter {
   publish(type: PlpEventType, payload: Record<string, unknown>): void {
-    this.emit("event", { type, payload });
+    this.emit('event', { type, payload });
   }
 }

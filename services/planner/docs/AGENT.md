@@ -7,11 +7,11 @@ proativos. Ele **não acessa o banco** — só conversa com o Core por HTTP.
 
 ## 1. Providers de IA
 
-| Provider | Chave | Modelo padrão (`*_MODEL`) | SDK | Observações |
-| --- | --- | --- | --- | --- |
-| `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | `openai` com `baseURL` do Groq | Free tier; API compatível com OpenAI |
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.0-flash` | `@google/generative-ai` | Free tier (AI Studio) |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` | `@anthropic-ai/sdk` | Pago; `max_tokens` = 1024 por resposta |
+| Provider    | Chave               | Modelo padrão (`*_MODEL`) | SDK                            | Observações                            |
+| ----------- | ------------------- | ------------------------- | ------------------------------ | -------------------------------------- |
+| `groq`      | `GROQ_API_KEY`      | `openai/gpt-oss-120b`     | `openai` com `baseURL` do Groq | Free tier; API compatível com OpenAI   |
+| `gemini`    | `GEMINI_API_KEY`    | `gemini-2.0-flash`        | `@google/generative-ai`        | Free tier (AI Studio)                  |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5`         | `@anthropic-ai/sdk`            | Pago; `max_tokens` = 1024 por resposta |
 
 **Seleção** (`providers/index.ts`): `AGENT_PROVIDER` (`groq|gemini|anthropic`)
 se definido; senão a primeira chave existente na ordem Groq → Gemini →
@@ -20,6 +20,8 @@ mensagem orientando a configurar uma chave. O provider é criado na **primeira
 mensagem** (não no boot), então `/health` responde mesmo sem chaves.
 
 Os catálogos de modelos gratuitos mudam com frequência — ajuste `*_MODEL`.
+
+**Groq free tier — limite de requisição.** O Groq recusa (**413**) requisições acima de ~8 000 tokens; as 72 ferramentas já ocupam ~6 200 (22 mil caracteres). Por isso o provider corta do histórico os turnos mais antigos até caber em `GROQ_MAX_REQUEST_CHARS` (padrão 30 000; o turno atual nunca é cortado). Turnos longos (ex.: carregar a skill `criar-bloco` e criar um bloco grande) ainda podem estourar; para isso use Gemini/Anthropic, um plano/modelo com limite maior, ou o Claude Code via [MCP](MCP.md).
 
 ### Laço de tool-use
 
@@ -44,66 +46,85 @@ importam:
 
 O catálogo de Skills é anexado ao prompt (`ToolRegistry.systemPrompt()`).
 
-## 3. Catálogo de ferramentas nativas (65)
+## 3. Catálogo de ferramentas nativas (72)
 
 Todas chamam o Core (exceto `run_claude_code` e `use_skill`, tratadas no
 `ToolRegistry`). Parâmetros obrigatórios em **negrito**.
 
 ### Tarefas (5)
-| Ferramenta | Parâmetros |
-| --- | --- |
-| `create_task` | **title**, projectId, dueAt, notes |
-| `list_tasks` | status, projectId |
-| `complete_task` | **taskId** |
-| `update_task` | **taskId**, title, projectId, dueAt, notes |
-| `delete_task` | **taskId** |
+
+| Ferramenta      | Parâmetros                                 |
+| --------------- | ------------------------------------------ |
+| `create_task`   | **title**, projectId, dueAt, notes         |
+| `list_tasks`    | status, projectId                          |
+| `complete_task` | **taskId**                                 |
+| `update_task`   | **taskId**, title, projectId, dueAt, notes |
+| `delete_task`   | **taskId**                                 |
 
 ### Projetos (4)
+
 `create_project` (**name**, goal) · `list_projects` · `update_project` (**projectId**, name, goal, progress) · `delete_project` (**projectId**; apaga as tarefas)
 
 ### Memória (3)
+
 `save_memory` (**content**, tags) · `list_memory` · `delete_memory` (**memoryId**)
 
 ### CRM (4)
+
 `create_client` (**name**, stage, value, nextAction, nextActionAt) · `list_clients` · `update_client` (**clientId**, stage, value, nextAction, nextActionAt) · `delete_client` (**clientId**)
 
 ### Estudos (14)
-| Grupo | Ferramentas |
-| --- | --- |
-| Disciplinas | `create_subject` (**name**, note, examDate) · `list_subjects` · `update_subject` (**subjectId**, progress, note, examDate) · `delete_subject` (**subjectId**) |
+
+| Grupo              | Ferramentas                                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Disciplinas        | `create_subject` (**name**, note, examDate) · `list_subjects` · `update_subject` (**subjectId**, progress, note, examDate) · `delete_subject` (**subjectId**)                  |
 | Tópicos e entregas | `create_study_topic` (**subjectId**, **title**, dueAt) · `list_study_topics` (subjectId) · `set_study_topic_done` (**topicId**, **done**) · `delete_study_topic` (**topicId**) |
-| Cronograma | `create_schedule_block` (**subjectId**, **dayOfWeek**, **startTime**, **endTime**) · `list_schedule` · `delete_schedule_block` (**blockId**) |
-| Sessões | `list_study_sessions` (days, padrão 30) · `delete_study_session` (**sessionId**) · `log_study_session` (**durationMinutes**, subjectId) |
+| Cronograma         | `create_schedule_block` (**subjectId**, **dayOfWeek**, **startTime**, **endTime**) · `list_schedule` · `delete_schedule_block` (**blockId**)                                   |
+| Sessões            | `list_study_sessions` (days, padrão 30) · `delete_study_session` (**sessionId**) · `log_study_session` (**durationMinutes**, subjectId)                                        |
 
 `log_study_session` calcula `startedAt = agora − duração` e `endedAt = agora`.
 `create_study_topic` com `dueAt` cria uma entrega/leitura.
 
 ### Pesquisa (9)
+
 `create_research_line` (**name**, stage, nextStep) · `list_research_lines` · `update_research_line` (**lineId**, stage, nextStep) · `delete_research_line` (**lineId**) · `create_paper` (**title**, source, researchLineId) · `list_papers` (researchLineId) · `update_paper_status` (**paperId**, **status**) · `delete_paper` (**paperId**) · **`create_research_note`** (**title**, **content**, researchLineId)
 
 `create_research_note` grava `Pesquisas/<slug>-<timestamp>.md` no vault e cria
 o artigo com `status: "resumido"` e `notePath`.
 
 ### Hábitos (4)
+
 `create_habit` (**name**, unit, target) · `list_habits` · `update_habit` (**habitId**, current, target) · `delete_habit` (**habitId**)
 
 ### Inbox (5)
+
 `list_messages` · `read_email` (**messageId**; devolve só o texto, sem HTML) · `mark_message_handled` (**messageId**, **handled**) · `delete_message` (**messageId**; só local) · `clear_inbox` (só quando o usuário pedir explicitamente)
 
 ### Google Tasks (4)
+
 `list_google_tasks` · `create_google_task` (**title**, notes, due, account) · `update_google_task` (**taskId**, title, notes, due, status, account) · `delete_google_task` (**taskId**, account)
 
 ### Google Calendar (4) e conta (3)
+
 `list_calendar_events` (limit) · `create_calendar_event` (**title**, **start**, **end**, description, account) · `update_calendar_event` (**eventId**, title, start, end, description, account) · `delete_calendar_event` (**eventId**, account)
 `check_google_status` · `sync_gmail` (limit, account) · `disconnect_google_account` (**email**)
 
 ### Notas / vault (5)
+
 `list_notes` · `read_note` (**path**) · `search_notes` (**query**) · `create_note` (**path**, **content**) · `delete_note` (**path**)
 
+### Construtor de blocos e painéis (7)
+
+`list_blocks` (sem o código) · `get_block` (**blockId**) · **`save_block`** (cria sem `blockId`, edita com; name, description, html, css, js, read[], write[], tools[], refreshSeconds) · `delete_block` (**blockId**) · `list_dashboards` · **`save_dashboard`** (dashboardId?, name, mode, blocks[{**blockId**, x, y, w, h}] em grade de 12 colunas) · `delete_dashboard` (**dashboardId**)
+
+Blocos criados/editados pelo agente ficam **aguardando aprovação** (o agente nunca envia `approved`). Blocos e painel embutidos não podem ser editados/excluídos (403). Carregue a skill `criar-bloco` antes.
+
 ### Claude Code (1)
+
 `run_claude_code` (**prompt**, cwd) → devolve `{status: "aguardando_confirmacao", actionId, aviso}`. **Nada é executado.**
 
 ### Ferramentas dinâmicas
+
 - `use_skill` (**name**) — só existe se houver Skills carregadas.
 - `mcp__<servidor>__<ferramenta>` — uma por ferramenta de cada servidor MCP conectado.
 
@@ -122,6 +143,7 @@ description: Faz uma revisão semanal das tarefas e projetos…
 ---
 
 Ao executar esta skill:
+
 1. Use `list_tasks` …
 ```
 
@@ -130,7 +152,7 @@ Ao executar esta skill:
 - O frontmatter é parseado de forma simples (`chave: valor` por linha). Sem `name`, vale o nome da pasta.
 - Carregadas no boot; para criar/editar uma skill é preciso reiniciar o Agent.
 
-Skill incluída: `revisao-semanal` (concluído × atrasado × próxima semana; usada pelo atalho "Faz minha revisão semanal").
+Skills incluídas: `criar-bloco` (blocos, design system, modais, painéis — ver [BUILDER.md](BUILDER.md)) e `revisao-semanal` (concluído × atrasado × próxima semana; usada pelo atalho "Faz minha revisão semanal").
 
 ## 5. MCP (Model Context Protocol)
 
@@ -158,11 +180,11 @@ Servidores externos em `.mcp.json` na raiz (mesmo formato do Claude Code):
 
 `ClaudeCodeService` — estado em memória (`Map` de ações).
 
-| Fluxo | Início | Confirmação | Resultado |
-| --- | --- | --- | --- |
-| Pedido do agente | `run_claude_code` → `createPending` | Usuário confirma no cartão | `output` no cartão |
-| Pesquisa | `POST /research/request` → `createResearchRequest` | Usuário confirma | Nota + artigo em Pesquisa |
-| Terminal | `POST /claude-code/run` → `runNow` | Implícita (o humano digitou) | Saída na aba Terminal |
+| Fluxo            | Início                                             | Confirmação                  | Resultado                 |
+| ---------------- | -------------------------------------------------- | ---------------------------- | ------------------------- |
+| Pedido do agente | `run_claude_code` → `createPending`                | Usuário confirma no cartão   | `output` no cartão        |
+| Pesquisa         | `POST /research/request` → `createResearchRequest` | Usuário confirma             | Nota + artigo em Pesquisa |
+| Terminal         | `POST /claude-code/run` → `runNow`                 | Implícita (o humano digitou) | Saída na aba Terminal     |
 
 **Prompt de pesquisa:** pede um resumo completo e estruturado, começando com
 `# <tema>` e seções `##`, devolvendo **somente** o markdown (sem saudação nem
@@ -178,11 +200,11 @@ Claude Code instalado e autenticado na máquina.
 
 `SchedulerService` (`@nestjs/schedule`) + `NotificationsService`.
 
-| Método | Cron | O que faz |
-| --- | --- | --- |
-| `morningBriefing` | `*/10 * * * *` | Se `MORNING_BRIEFING_ENABLED != "false"` e a hora local = `MORNING_BRIEFING_HOUR` e ainda não rodou hoje: pede ao próprio `/chat` um resumo de até 4 frases e enfileira "Bom dia" |
-| `upcomingEvents` | `*/5 * * * *` | Eventos do Calendar que começam em `(0, EVENT_REMINDER_MINUTES]`; avisa **uma vez** por evento ("Compromisso em breve") |
-| `googleTasksReminders` | `*/10 * * * *` | Tarefas do Google `needsAction` com prazo ≤ hoje: "Tarefa atrasada" (prazo < hoje) ou "Tarefa vence hoje". **Repete a cada 1 h** por tarefa enquanto continuar aberta |
+| Método                 | Cron           | O que faz                                                                                                                                                                         |
+| ---------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `morningBriefing`      | `*/10 * * * *` | Se `MORNING_BRIEFING_ENABLED != "false"` e a hora local = `MORNING_BRIEFING_HOUR` e ainda não rodou hoje: pede ao próprio `/chat` um resumo de até 4 frases e enfileira "Bom dia" |
+| `upcomingEvents`       | `*/5 * * * *`  | Eventos do Calendar que começam em `(0, EVENT_REMINDER_MINUTES]`; avisa **uma vez** por evento ("Compromisso em breve")                                                           |
+| `googleTasksReminders` | `*/10 * * * *` | Tarefas do Google `needsAction` com prazo ≤ hoje: "Tarefa atrasada" (prazo < hoje) ou "Tarefa vence hoje". **Repete a cada 1 h** por tarefa enquanto continuar aberta             |
 
 Detalhes:
 

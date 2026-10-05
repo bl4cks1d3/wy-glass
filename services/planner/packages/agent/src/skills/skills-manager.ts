@@ -1,10 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import type { AgentTool } from "../tools";
+import { Injectable, Logger } from '@nestjs/common';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import type { AgentTool } from '../tools';
 
 // packages/agent/src/skills -> packages/agent/skills
-const SKILLS_DIR = resolve(__dirname, "../../skills");
+const SKILLS_DIR = resolve(__dirname, '../../skills');
 
 interface Skill {
   name: string;
@@ -19,7 +19,7 @@ function parseSkillFile(raw: string): { name?: string; description?: string; bod
   const [, frontmatter, body] = match;
   const meta: Record<string, string> = {};
   for (const line of frontmatter.split(/\r?\n/)) {
-    const idx = line.indexOf(":");
+    const idx = line.indexOf(':');
     if (idx === -1) continue;
     meta[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
   }
@@ -47,28 +47,28 @@ export class SkillsManager {
 
     for (const entry of readdirSync(SKILLS_DIR, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
-      const skillFile = join(SKILLS_DIR, entry.name, "SKILL.md");
+      const skillFile = join(SKILLS_DIR, entry.name, 'SKILL.md');
       if (!existsSync(skillFile)) continue;
 
-      const { name, description, body } = parseSkillFile(readFileSync(skillFile, "utf8"));
+      const { name, description, body } = parseSkillFile(readFileSync(skillFile, 'utf8'));
       const skillName = name ?? entry.name;
       this.skills.set(skillName, {
         name: skillName,
-        description: description ?? "(sem descricao)",
+        description: description ?? '(sem descricao)',
         body,
       });
     }
 
     if (this.skills.size > 0) {
-      this.logger.log(`skills carregadas: ${[...this.skills.keys()].join(", ")}`);
+      this.logger.log(`skills carregadas: ${[...this.skills.keys()].join(', ')}`);
     }
   }
 
   describeAvailable(): string {
-    if (this.skills.size === 0) return "";
+    if (this.skills.size === 0) return '';
     const lines = [...this.skills.values()].map((skill) => `- ${skill.name}: ${skill.description}`);
     return `Skills disponiveis (use a ferramenta use_skill para carregar as instrucoes completas de uma delas quando o pedido do usuario combinar com alguma):\n${lines.join(
-      "\n"
+      '\n',
     )}`;
   }
 
@@ -76,15 +76,15 @@ export class SkillsManager {
     if (this.skills.size === 0) return [];
     return [
       {
-        name: "use_skill",
+        name: 'use_skill',
         description:
-          "Carrega as instrucoes completas de uma skill do Planner Life pelo nome, para seguir um processo especifico ja definido.",
+          'Carrega as instrucoes completas de uma skill do Planner Life pelo nome, para seguir um processo especifico ja definido.',
         parameters: {
-          type: "object",
+          type: 'object',
           properties: {
-            name: { type: "string", enum: [...this.skills.keys()] },
+            name: { type: 'string', enum: [...this.skills.keys()] },
           },
-          required: ["name"],
+          required: ['name'],
         },
       },
     ];
@@ -94,7 +94,7 @@ export class SkillsManager {
     const skill = this.skills.get(name);
     if (!skill) {
       throw new Error(
-        `skill desconhecida: "${name}". Skills disponiveis: ${[...this.skills.keys()].join(", ") || "nenhuma"}`
+        `skill desconhecida: "${name}". Skills disponiveis: ${[...this.skills.keys()].join(', ') || 'nenhuma'}`,
       );
     }
     return skill.body;

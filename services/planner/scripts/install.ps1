@@ -15,6 +15,9 @@
   Nao instala o app Electron (pula o download de ~100 MB).
 .PARAMETER Shortcut
   Cria o atalho "Planner Life" na area de trabalho (abre o app sem console).
+.PARAMETER WithMcp
+  Registra o MCP do Planner no Claude Code (caminho absoluto, vale em qualquer pasta).
+  Sem a opcao, pergunta (se o Claude Code estiver instalado). Manual: pnpm mcp:install
 .PARAMETER Yes
   Nao faz perguntas (usa os padroes; nao pede chave de IA).
 
@@ -28,6 +31,7 @@ param(
   [switch]$WithVoice,
   [switch]$NoDesktop,
   [switch]$Shortcut,
+  [switch]$WithMcp,
   [switch]$Yes
 )
 
@@ -123,9 +127,12 @@ if (Test-Command 'pnpm') { Ok "pnpm $((& pnpm -v).Trim())" }
 
 if (Test-Command 'git') { Ok "git $((& git --version) -replace 'git version ','')" } else { Warn 'git nao encontrado (so necessario para atualizar o projeto)' }
 
+$ClaudeFound = $false
 if (Test-Command 'claude') {
+  $ClaudeFound = $true
   Ok 'Claude Code CLI encontrado (Terminal e Pesquisa vao funcionar)'
 } elseif (Test-Path (Join-Path $env:APPDATA 'Claude\claude-code')) {
+  $ClaudeFound = $true
   Ok 'Claude Code (app desktop) encontrado (Terminal e Pesquisa vao funcionar)'
 } else {
   Warn "Claude Code nao encontrado: a aba Terminal e a pesquisa por tema precisam dele (https://claude.com/claude-code). O resto funciona sem."
@@ -183,6 +190,8 @@ if (Test-Path -LiteralPath $envPath) {
 Step 'Compilando o pacote compartilhado'
 Invoke-Native 'pnpm' @('--filter', '@planner-life/shared', 'build')
 Ok '@planner-life/shared compilado'
+Invoke-Native 'pnpm' @('--filter', '@planner-life/mcp', 'build')
+Ok '@planner-life/mcp compilado (servidor MCP do Claude Code)'
 
 # ---------------------------------------------------------------- voz (opcional)
 function Install-Voice {
@@ -244,6 +253,26 @@ if ($Shortcut) {
   Write-Host ''
   $reply = Read-Host 'Criar atalho "Planner Life" na area de trabalho? [s/N]'
   if ($reply -match '^(s|S|y|Y)') { New-DesktopShortcut }
+}
+
+# ---------------------------------------------------------------- MCP no Claude Code (opcional)
+function Install-Mcp {
+  & node (Join-Path $Root 'scripts\install-mcp.mjs')
+  if ($LASTEXITCODE -ne 0) { Warn 'nao consegui registrar o MCP agora (rode depois: pnpm mcp:install)' }
+}
+
+if ($WithMcp) {
+  Step 'Registrando o MCP do Planner no Claude Code'
+  if ($ClaudeFound) { Install-Mcp } else { Warn 'Claude Code nao encontrado: instale-o e rode pnpm mcp:install' }
+} elseif ($Interactive -and $ClaudeFound) {
+  Write-Host ''
+  $reply = Read-Host 'Registrar o MCP do Planner no Claude Code (funciona em qualquer pasta)? [s/N]'
+  if ($reply -match '^(s|S|y|Y)') {
+    Step 'Registrando o MCP do Planner no Claude Code'
+    Install-Mcp
+  } else {
+    Warn 'MCP nao registrado (rode depois: pnpm mcp:install)'
+  }
 }
 
 # ---------------------------------------------------------------- pasta de dados

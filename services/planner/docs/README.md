@@ -11,15 +11,19 @@ dashboard web/desktop e uma rede P2P opcional entre dispositivos.
 
 ## Índice
 
-| Documento | Para quê |
-| --- | --- |
-| [SPEC.md](SPEC.md) | Especificação do produto: visão, requisitos funcionais e não funcionais, regras de negócio, limitações e roadmap |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Componentes, processos e portas, fluxos de dados, decisões de arquitetura e modelo de segurança |
-| [API.md](API.md) | Referência dos endpoints HTTP de cada serviço (Core, Agent, Voice, ponte P2P) |
-| [DATA-MODEL.md](DATA-MODEL.md) | Tabelas SQLite, tipos compartilhados, eventos PLP e regras de cascata |
-| [AGENT.md](AGENT.md) | Personal Agent: providers, catálogo de ferramentas, Skills, MCP, Claude Code, rotinas proativas |
-| [CONFIGURATION.md](CONFIGURATION.md) | Variáveis de ambiente, aba Configurações e o que exige reinício |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Como rodar, estrutura do monorepo, convenções, como estender e armadilhas conhecidas |
+| Documento                            | Para quê                                                                                                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [SPEC.md](SPEC.md)                   | Especificação do produto: visão, requisitos funcionais e não funcionais, regras de negócio, limitações e roadmap                                                  |
+| [ARCHITECTURE.md](ARCHITECTURE.md)   | Componentes, processos e portas, fluxos de dados, decisões de arquitetura e modelo de segurança                                                                   |
+| [API.md](API.md)                     | Referência dos endpoints HTTP de cada serviço (Core, Agent, Voice, ponte P2P)                                                                                     |
+| [DATA-MODEL.md](DATA-MODEL.md)       | Tabelas SQLite, tipos compartilhados, eventos PLP e regras de cascata                                                                                             |
+| [BUILDER.md](BUILDER.md)             | Construtor: blocos (HTML+CSS+JS), design system, modais, painéis (Dashboard/Canvas), banco sob medida e segurança dos blocos                                      |
+| [AUTOMATIONS.md](AUTOMATIONS.md)     | Automações: motor nativo (grafo de nós), editor no canvas, avisos/temporizadores e Claude Code criando automações em linguagem natural (rascunho até você ativar) |
+| [VOICE-CALL.md](VOICE-CALL.md)       | Chamada de voz (modo conversacional, Gemini Live) chamando as ferramentas do Planner                                                                              |
+| [MCP.md](MCP.md)                     | Claude como construtor: servidor MCP `planner-life` para descrever sua situação e o Claude montar banco, blocos e painel                                          |
+| [AGENT.md](AGENT.md)                 | Personal Agent: providers, catálogo de ferramentas, Skills, MCP, Claude Code, rotinas proativas                                                                   |
+| [CONFIGURATION.md](CONFIGURATION.md) | Variáveis de ambiente, aba Configurações e o que exige reinício                                                                                                   |
+| [DEVELOPMENT.md](DEVELOPMENT.md)     | Como rodar, estrutura do monorepo, convenções, como estender e armadilhas conhecidas                                                                              |
 
 ## Visão em uma página
 
@@ -32,7 +36,7 @@ dashboard web/desktop e uma rede P2P opcional entre dispositivos.
                                 ▼           ▼ Claude Code
                      ┌────────────────┐  ┌──────────────────┐   ┌────────────┐
                      │ core  (:4000)  │◄─┤ agent  (:4100)   │   │ voice(:4200)│
-                     │ NestJS+SQLite  │  │ LLM + ferramentas│   │ Piper (TTS)│
+                     │ NestJS+SQLite  │  │ LLM + ferramentas│   │ Piper + Live│
                      └───┬─────┬──────┘  └──┬─────────┬─────┘   └────────────┘
                          │     │            │         │
                 Google   │     │ vault      │ MCP     │ claude -p

@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { ScheduleBlock, StudySession, StudyTopic } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { ScheduleBlock, StudySession, StudyTopic } from '@planner-life/shared';
 
 interface TopicRow {
   id: string;
@@ -24,7 +24,10 @@ function rowToTopic(row: TopicRow): StudyTopic {
   };
 }
 
-export function createTopic(db: PlannerDb, input: { subjectId: string; title: string; dueAt?: string }): StudyTopic {
+export function createTopic(
+  db: PlannerDb,
+  input: { subjectId: string; title: string; dueAt?: string },
+): StudyTopic {
   const now = new Date().toISOString();
   const row: TopicRow = {
     id: randomUUID(),
@@ -36,7 +39,7 @@ export function createTopic(db: PlannerDb, input: { subjectId: string; title: st
     updated_at: now,
   };
   db.prepare(
-    `INSERT INTO study_topics (id, subject_id, title, done, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO study_topics (id, subject_id, title, done, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.subject_id, row.title, row.done, row.due_at, row.created_at, row.updated_at);
   return rowToTopic(row);
 }
@@ -45,13 +48,19 @@ export function listTopics(db: PlannerDb, subjectId?: string): StudyTopic[] {
   const sql = subjectId
     ? `SELECT * FROM study_topics WHERE subject_id = ? ORDER BY created_at ASC`
     : `SELECT * FROM study_topics ORDER BY created_at ASC`;
-  const rows = (subjectId ? db.prepare(sql).all(subjectId) : db.prepare(sql).all()) as unknown as TopicRow[];
+  const rows = (subjectId
+    ? db.prepare(sql).all(subjectId)
+    : db.prepare(sql).all()) as unknown as TopicRow[];
   return rows.map(rowToTopic);
 }
 
 export function setTopicDone(db: PlannerDb, id: string, done: boolean): StudyTopic | undefined {
   const now = new Date().toISOString();
-  db.prepare(`UPDATE study_topics SET done = ?, updated_at = ? WHERE id = ?`).run(done ? 1 : 0, now, id);
+  db.prepare(`UPDATE study_topics SET done = ?, updated_at = ? WHERE id = ?`).run(
+    done ? 1 : 0,
+    now,
+    id,
+  );
   const row = db.prepare(`SELECT * FROM study_topics WHERE id = ?`).get(id) as TopicRow | undefined;
   return row ? rowToTopic(row) : undefined;
 }
@@ -82,7 +91,7 @@ function rowToBlock(row: ScheduleRow): ScheduleBlock {
 
 export function createScheduleBlock(
   db: PlannerDb,
-  input: { subjectId: string; dayOfWeek: number; startTime: string; endTime: string }
+  input: { subjectId: string; dayOfWeek: number; startTime: string; endTime: string },
 ): ScheduleBlock {
   const now = new Date().toISOString();
   const row: ScheduleRow = {
@@ -94,7 +103,7 @@ export function createScheduleBlock(
     created_at: now,
   };
   db.prepare(
-    `INSERT INTO schedule_blocks (id, subject_id, day_of_week, start_time, end_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO schedule_blocks (id, subject_id, day_of_week, start_time, end_time, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.subject_id, row.day_of_week, row.start_time, row.end_time, row.created_at);
   return rowToBlock(row);
 }
@@ -132,7 +141,7 @@ function rowToSession(row: SessionRow): StudySession {
 
 export function createSession(
   db: PlannerDb,
-  input: { subjectId?: string; durationMinutes: number; startedAt: string; endedAt: string }
+  input: { subjectId?: string; durationMinutes: number; startedAt: string; endedAt: string },
 ): StudySession {
   const now = new Date().toISOString();
   const row: SessionRow = {
@@ -144,7 +153,7 @@ export function createSession(
     created_at: now,
   };
   db.prepare(
-    `INSERT INTO study_sessions (id, subject_id, duration_minutes, started_at, ended_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO study_sessions (id, subject_id, duration_minutes, started_at, ended_at, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(row.id, row.subject_id, row.duration_minutes, row.started_at, row.ended_at, row.created_at);
   return rowToSession(row);
 }

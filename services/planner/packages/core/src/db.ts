@@ -1,7 +1,38 @@
-import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
+// Automacoes (grafo estilo n8n). Recriadas na migracao se vierem do formato antigo (gatilho + passos), que nunca foi usado.
+const AUTOMATION_DDL = `
+CREATE TABLE IF NOT EXISTS automations (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  graph TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+  active INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'user',
+  last_run_at TEXT,
+  last_status TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'live',
+  trigger_node TEXT NOT NULL DEFAULT '',
+  trigger_type TEXT NOT NULL,
+  trigger_payload TEXT NOT NULL DEFAULT '{}',
+  nodes TEXT NOT NULL DEFAULT '[]',
+  error TEXT,
+  started_at TEXT NOT NULL,
+  finished_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs ON automation_runs(automation_id, started_at);
+`;
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
@@ -131,6 +162,62 @@ CREATE TABLE IF NOT EXISTS habits (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS blocks (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  html TEXT NOT NULL DEFAULT '',
+  css TEXT NOT NULL DEFAULT '',
+  js TEXT NOT NULL DEFAULT '',
+  permissions TEXT NOT NULL DEFAULT '{"read":[],"write":[],"tools":[]}',
+  refresh_seconds INTEGER NOT NULL DEFAULT 0,
+  source TEXT NOT NULL DEFAULT 'user',
+  approved INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS dashboards (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  mode TEXT NOT NULL DEFAULT 'grid',
+  items TEXT NOT NULL DEFAULT '[]',
+  builtin INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS collections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  description TEXT,
+  fields TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS records (
+  id TEXT PRIMARY KEY,
+  collection_id TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_records_collection ON records(collection_id);
+
+CREATE TABLE IF NOT EXISTS workspaces (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  nodes TEXT NOT NULL DEFAULT '[]',
+  viewport TEXT NOT NULL DEFAULT '{"x":0,"y":0,"zoom":1}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+${AUTOMATION_DDL}
+
 CREATE TABLE IF NOT EXISTS integration_tokens (
   provider TEXT PRIMARY KEY,
   access_token TEXT NOT NULL,
@@ -149,14 +236,18 @@ function migrate(db: DatabaseSync): void {
     const rows = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     return rows.some((r) => r.name === column);
   };
-  if (!hasColumn("papers", "note_path")) {
+  if (!hasColumn('papers', 'note_path')) {
     db.exec(`ALTER TABLE papers ADD COLUMN note_path TEXT`);
   }
-  if (!hasColumn("subjects", "exam_date")) {
+  if (!hasColumn('subjects', 'exam_date')) {
     db.exec(`ALTER TABLE subjects ADD COLUMN exam_date TEXT`);
   }
-  if (!hasColumn("study_topics", "due_at")) {
+  if (!hasColumn('study_topics', 'due_at')) {
     db.exec(`ALTER TABLE study_topics ADD COLUMN due_at TEXT`);
+  }
+  if (!hasColumn('automations', 'graph')) {
+    db.exec(`DROP TABLE IF EXISTS automation_runs; DROP TABLE IF EXISTS automations;`);
+    db.exec(AUTOMATION_DDL);
   }
 }
 

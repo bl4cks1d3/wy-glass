@@ -1,8 +1,8 @@
-import { Inject, Injectable } from "@nestjs/common";
-import type { PlannerDb } from "../db";
-import { PLANNER_DB } from "../database/database.module";
-import * as eventsRepo from "../repositories/events";
-import type { PlpEventType } from "@planner-life/shared";
+import { Inject, Injectable } from '@nestjs/common';
+import type { PlannerDb } from '../db';
+import { PLANNER_DB } from '../database/database.module';
+import * as eventsRepo from '../repositories/events';
+import type { PlpEventType } from '@planner-life/shared';
 
 @Injectable()
 export class EventsService {

@@ -1,13 +1,13 @@
-import { InternalServerErrorException, Logger } from "@nestjs/common";
-import Anthropic from "@anthropic-ai/sdk";
-import type { ToolRegistry } from "../tool-registry";
-import type { AgentTool } from "../tools";
-import type { LlmProvider } from "./types";
+import { InternalServerErrorException, Logger } from '@nestjs/common';
+import Anthropic from '@anthropic-ai/sdk';
+import type { ToolRegistry } from '../tool-registry';
+import type { AgentTool } from '../tools';
+import type { LlmProvider } from './types';
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-5";
+const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-5';
 
 const MISSING_KEY_MESSAGE =
-  "ANTHROPIC_API_KEY nao configurada. Configure GROQ_API_KEY, GEMINI_API_KEY ou ANTHROPIC_API_KEY no .env (veja .env.example) e ajuste AGENT_PROVIDER se necessario.";
+  'ANTHROPIC_API_KEY nao configurada. Configure GROQ_API_KEY, GEMINI_API_KEY ou ANTHROPIC_API_KEY no .env (veja .env.example) e ajuste AGENT_PROVIDER se necessario.';
 
 function toAnthropicTools(tools: AgentTool[]): Anthropic.Tool[] {
   return tools.map((tool) => ({
@@ -22,8 +22,8 @@ function toAnthropicTools(tools: AgentTool[]): Anthropic.Tool[] {
  * Anthropic; o padrao do Planner Life e usar Groq ou Gemini (free tier).
  */
 export class AnthropicProvider implements LlmProvider {
-  readonly name = "anthropic";
-  private readonly logger = new Logger("AnthropicProvider");
+  readonly name = 'anthropic';
+  private readonly logger = new Logger('AnthropicProvider');
   private readonly history: Anthropic.MessageParam[] = [];
   private client: Anthropic | undefined;
 
@@ -41,7 +41,7 @@ export class AnthropicProvider implements LlmProvider {
 
   async chat(userMessage: string): Promise<string> {
     const client = this.getClient();
-    this.history.push({ role: "user", content: userMessage });
+    this.history.push({ role: 'user', content: userMessage });
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -53,29 +53,32 @@ export class AnthropicProvider implements LlmProvider {
         messages: this.history,
       });
 
-      this.history.push({ role: "assistant", content: response.content });
+      this.history.push({ role: 'assistant', content: response.content });
 
-      if (response.stop_reason !== "tool_use") {
+      if (response.stop_reason !== 'tool_use') {
         return response.content
-          .filter((block): block is Anthropic.TextBlock => block.type === "text")
+          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
           .map((block) => block.text)
-          .join("\n");
+          .join('\n');
       }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
       for (const block of response.content) {
-        if (block.type !== "tool_use") continue;
+        if (block.type !== 'tool_use') continue;
         this.logger.log(`ferramenta: ${block.name} ${JSON.stringify(block.input)}`);
         try {
-          const result = await this.registry.call(block.name, block.input as Record<string, unknown>);
+          const result = await this.registry.call(
+            block.name,
+            block.input as Record<string, unknown>,
+          );
           toolResults.push({
-            type: "tool_result",
+            type: 'tool_result',
             tool_use_id: block.id,
-            content: typeof result === "string" ? result : JSON.stringify(result),
+            content: typeof result === 'string' ? result : JSON.stringify(result),
           });
         } catch (err) {
           toolResults.push({
-            type: "tool_result",
+            type: 'tool_result',
             tool_use_id: block.id,
             is_error: true,
             content: err instanceof Error ? err.message : String(err),
@@ -83,7 +86,7 @@ export class AnthropicProvider implements LlmProvider {
         }
       }
 
-      this.history.push({ role: "user", content: toolResults });
+      this.history.push({ role: 'user', content: toolResults });
     }
   }
 }

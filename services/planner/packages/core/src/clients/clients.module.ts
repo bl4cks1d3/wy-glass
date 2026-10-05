@@ -1,7 +1,7 @@
-import { Module } from "@nestjs/common";
-import { EventsModule } from "../events/events.module";
-import { ClientsService } from "./clients.service";
-import { ClientsController } from "./clients.controller";
+import { Module } from '@nestjs/common';
+import { EventsModule } from '../events/events.module';
+import { ClientsService } from './clients.service';
+import { ClientsController } from './clients.controller';
 
 @Module({
   imports: [EventsModule],

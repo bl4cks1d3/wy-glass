@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { Task, TaskStatus } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { Task, TaskStatus } from '@planner-life/shared';
 
 interface TaskRow {
   id: string;
@@ -28,14 +28,14 @@ function rowToTask(row: TaskRow): Task {
 
 export function createTask(
   db: PlannerDb,
-  input: { title: string; projectId?: string; dueAt?: string; notes?: string }
+  input: { title: string; projectId?: string; dueAt?: string; notes?: string },
 ): Task {
   const now = new Date().toISOString();
   const row: TaskRow = {
     id: randomUUID(),
     title: input.title,
     project_id: input.projectId ?? null,
-    status: "pending",
+    status: 'pending',
     due_at: input.dueAt ?? null,
     notes: input.notes ?? null,
     created_at: now,
@@ -43,7 +43,7 @@ export function createTask(
   };
   db.prepare(
     `INSERT INTO tasks (id, title, project_id, status, due_at, notes, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.title,
@@ -52,14 +52,14 @@ export function createTask(
     row.due_at,
     row.notes,
     row.created_at,
-    row.updated_at
+    row.updated_at,
   );
   return rowToTask(row);
 }
 
 export function listTasks(
   db: PlannerDb,
-  filter?: { status?: TaskStatus; projectId?: string }
+  filter?: { status?: TaskStatus; projectId?: string },
 ): Task[] {
   let sql = `SELECT * FROM tasks WHERE 1=1`;
   const params: string[] = [];
@@ -77,43 +77,38 @@ export function listTasks(
 }
 
 export function getTask(db: PlannerDb, id: string): Task | undefined {
-  const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as
-    | TaskRow
-    | undefined;
+  const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as TaskRow | undefined;
   return row ? rowToTask(row) : undefined;
 }
 
-export function updateTaskStatus(
-  db: PlannerDb,
-  id: string,
-  status: TaskStatus
-): Task | undefined {
+export function updateTaskStatus(db: PlannerDb, id: string, status: TaskStatus): Task | undefined {
   const now = new Date().toISOString();
-  db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(
-    status,
-    now,
-    id
-  );
+  db.prepare(`UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?`).run(status, now, id);
   return getTask(db, id);
 }
 
 export function updateTask(
   db: PlannerDb,
   id: string,
-  input: { title?: string; projectId?: string | null; dueAt?: string | null; notes?: string | null }
+  input: {
+    title?: string;
+    projectId?: string | null;
+    dueAt?: string | null;
+    notes?: string | null;
+  },
 ): Task | undefined {
   const current = getTask(db, id);
   if (!current) return undefined;
   const now = new Date().toISOString();
   db.prepare(
-    `UPDATE tasks SET title = ?, project_id = ?, due_at = ?, notes = ?, updated_at = ? WHERE id = ?`
+    `UPDATE tasks SET title = ?, project_id = ?, due_at = ?, notes = ?, updated_at = ? WHERE id = ?`,
   ).run(
     input.title ?? current.title,
     input.projectId !== undefined ? input.projectId : (current.projectId ?? null),
     input.dueAt !== undefined ? input.dueAt : (current.dueAt ?? null),
     input.notes !== undefined ? input.notes : (current.notes ?? null),
     now,
-    id
+    id,
   );
   return getTask(db, id);
 }

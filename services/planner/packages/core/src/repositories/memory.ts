@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { MemoryEntry } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { MemoryEntry } from '@planner-life/shared';
 
 interface MemoryRow {
   id: string;
@@ -22,18 +22,18 @@ function rowToMemory(row: MemoryRow): MemoryEntry {
 
 export function createMemory(
   db: PlannerDb,
-  input: { content: string; tags?: string[]; source?: string }
+  input: { content: string; tags?: string[]; source?: string },
 ): MemoryEntry {
   const now = new Date().toISOString();
   const row: MemoryRow = {
     id: randomUUID(),
     content: input.content,
     tags: JSON.stringify(input.tags ?? []),
-    source: input.source ?? "user",
+    source: input.source ?? 'user',
     created_at: now,
   };
   db.prepare(
-    `INSERT INTO memory_entries (id, content, tags, source, created_at) VALUES (?, ?, ?, ?, ?)`
+    `INSERT INTO memory_entries (id, content, tags, source, created_at) VALUES (?, ?, ?, ?, ?)`,
   ).run(row.id, row.content, row.tags, row.source, row.created_at);
   return rowToMemory(row);
 }

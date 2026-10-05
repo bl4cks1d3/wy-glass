@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
-import type { PlannerDb } from "../db";
-import type { Client, ClientStage } from "@planner-life/shared";
+import { randomUUID } from 'node:crypto';
+import type { PlannerDb } from '../db';
+import type { Client, ClientStage } from '@planner-life/shared';
 
 interface ClientRow {
   id: string;
@@ -28,13 +28,19 @@ function rowToClient(row: ClientRow): Client {
 
 export function createClient(
   db: PlannerDb,
-  input: { name: string; stage?: ClientStage; value?: number; nextAction?: string; nextActionAt?: string }
+  input: {
+    name: string;
+    stage?: ClientStage;
+    value?: number;
+    nextAction?: string;
+    nextActionAt?: string;
+  },
 ): Client {
   const now = new Date().toISOString();
   const row: ClientRow = {
     id: randomUUID(),
     name: input.name,
-    stage: input.stage ?? "lead",
+    stage: input.stage ?? 'lead',
     value: input.value ?? 0,
     next_action: input.nextAction ?? null,
     next_action_at: input.nextActionAt ?? null,
@@ -43,7 +49,7 @@ export function createClient(
   };
   db.prepare(
     `INSERT INTO clients (id, name, stage, value, next_action, next_action_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     row.id,
     row.name,
@@ -52,7 +58,7 @@ export function createClient(
     row.next_action,
     row.next_action_at,
     row.created_at,
-    row.updated_at
+    row.updated_at,
   );
   return rowToClient(row);
 }
@@ -72,20 +78,20 @@ export function getClient(db: PlannerDb, id: string): Client | undefined {
 export function updateClient(
   db: PlannerDb,
   id: string,
-  input: { stage?: ClientStage; value?: number; nextAction?: string; nextActionAt?: string }
+  input: { stage?: ClientStage; value?: number; nextAction?: string; nextActionAt?: string },
 ): Client | undefined {
   const current = getClient(db, id);
   if (!current) return undefined;
   const now = new Date().toISOString();
   db.prepare(
-    `UPDATE clients SET stage = ?, value = ?, next_action = ?, next_action_at = ?, updated_at = ? WHERE id = ?`
+    `UPDATE clients SET stage = ?, value = ?, next_action = ?, next_action_at = ?, updated_at = ? WHERE id = ?`,
   ).run(
     input.stage ?? current.stage,
     input.value ?? current.value,
     input.nextAction ?? current.nextAction ?? null,
     input.nextActionAt ?? current.nextActionAt ?? null,
     now,
-    id
+    id,
   );
   return getClient(db, id);
 }

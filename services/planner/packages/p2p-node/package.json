@@ -1,0 +1,29 @@
+{
+  "name": "@planner-life/p2p-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/cli.ts",
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-gossipsub": "^14.1.2",
+    "@chainsafe/libp2p-noise": "^16.1.5",
+    "@chainsafe/libp2p-yamux": "^7.0.4",
+    "@libp2p/identify": "^3.0.39",
+    "@libp2p/interface": "^2.11.0",
+    "@libp2p/mdns": "^11.0.47",
+    "@libp2p/tcp": "^10.1.19",
+    "@planner-life/shared": "workspace:*",
+    "dotenv": "^16.4.7",
+    "libp2p": "^2.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

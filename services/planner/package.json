@@ -1,0 +1,28 @@
+{
+  "name": "planner-life",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Planner Life - sistema operacional pessoal de IA",
+  "scripts": {
+    "dev:shared": "pnpm --filter @planner-life/shared dev",
+    "dev:core": "pnpm --filter @planner-life/core dev",
+    "dev:agent": "pnpm --filter @planner-life/agent dev",
+    "dev:web": "pnpm --filter @planner-life/web dev",
+    "dev:p2p": "pnpm --filter @planner-life/p2p-node dev",
+    "dev:voice": "pnpm --filter @planner-life/voice dev",
+    "desktop": "pnpm --filter @planner-life/shared build && pnpm --filter @planner-life/desktop dev",
+    "dev": "pnpm --filter @planner-life/shared build && concurrently -n shared,core,agent,web,voice -c gray,blue,green,magenta,yellow \"pnpm dev:shared\" \"pnpm dev:core\" \"pnpm dev:agent\" \"pnpm dev:web\" \"pnpm dev:voice\"",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@nestjs/core", "esbuild", "electron"]
+  }
+}

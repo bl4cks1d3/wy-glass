@@ -698,4 +698,11 @@
   };
 
   window.wyPanel = { open, close };
+
+  // volta do login do Google (Planner -> escritorio -> /orb?google=connected&account=...)
+  const qs = new URLSearchParams(location.search);
+  if (qs.get('google') === 'connected') {
+    toast('Google conectado' + (qs.get('account') ? ': ' + qs.get('account') : ''));
+    history.replaceState(null, '', location.pathname);
+  }
 })();

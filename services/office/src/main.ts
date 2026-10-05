@@ -46,6 +46,12 @@ async function main(): Promise<void> {
   const app = Fastify({ logger: false });
   await app.register(fastifyWebsocket);
   app.get('/api/health', async () => ({ ok: true, service: 'office' }));
+  // Sem sala própria: quem chega na raiz (ex.: retorno do login do Google, WEB_APP_URL do
+  // Planner) vai pro orb, levando a query (?google=connected...).
+  app.get('/', async (req, reply) => {
+    const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    return reply.redirect(`http://127.0.0.1:8731/orb${q}`);
+  });
   registerBrainRoutes(app, brain, token);
   registerServiceRoutes(app, supervisor, token, brainDataDir);
   await app.listen({ port, host });

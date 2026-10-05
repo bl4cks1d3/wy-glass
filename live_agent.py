@@ -470,7 +470,8 @@ operador. <<CONFIRM_RULE>>
 
 VIDA DO USUARIO: pra perguntas sobre o dia, prazos, tarefas, provas, clientes, habitos ou "o que eu
 faco agora", chame ler_dados_da_vida (le os bancos do Brain Office, rapido e sem depender de nada
-rodando) antes de responder.
+rodando) antes de responder. Tarefas do Google Tasks: google_tarefas (listar, concluir quando ele
+disser que fez/deu ok, reabrir, criar).
 
 BRAIN OFFICE: o usuario tem um escritorio de agentes residentes, um por setor da vida (agenda,
 faculdade, pesquisa, projetos, clientes, pessoal, casa). Quando ele pedir pra falar com um setor,
@@ -517,7 +518,7 @@ def _execute_tool(name: str, args: dict, cfg: dict) -> str:
             task=args.get("task", ""), agent_label=agent["label"], agent_description=agent["description"],
             groq_api_key=ctx["groq_api_key"], tavily_api_key=ctx["tavily_api_key"],
             gateway=ctx["omni_route"], session_id=ctx["session_id"],
-            allowed_skills=(_mcp_tool_names(include_hidden=True) + ["escritorio", "ler_dados_da_vida"])
+            allowed_skills=(_mcp_tool_names(include_hidden=True) + ["escritorio", "ler_dados_da_vida", "google_tarefas"])
             if agent["skills"] == "mcp"
             else agent["skills"])
     result, _ = skills_registry.execute_tool(name, args, ctx)

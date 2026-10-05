@@ -865,6 +865,19 @@ async def google_snapshot(days: int = 7):
     return await loop.run_in_executor(None, google_bridge.snapshot, days)
 
 
+@app.post("/api/google/tasks/{task_id}")
+async def google_task_status(task_id: str, request: Request):
+    """Conclui/reabre uma tarefa do Google Tasks (checkbox da Central). Body: {"done": bool}."""
+    import google_bridge
+    done = bool((await request.json()).get("done", True))
+    loop = asyncio.get_event_loop()
+    try:
+        await loop.run_in_executor(None, google_bridge.set_task_done, task_id, done)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    return {"ok": True}
+
+
 @app.post("/api/google/reconnect")
 async def google_reconnect():
     import google_bridge

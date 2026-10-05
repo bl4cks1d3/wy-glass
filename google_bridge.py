@@ -75,3 +75,39 @@ def open_reconnect() -> str:
     """Abre o fluxo OAuth do Planner Core no navegador padrao -- o usuario entra na conta Google."""
     webbrowser.open(auth_url())
     return "Abri a reconexão do Google no navegador. Entre na sua conta e autorize."
+
+
+def _core_error(r: requests.Response) -> str:
+    try:
+        msg = r.json().get("message", r.text)
+    except ValueError:
+        msg = r.text
+    return _friendly(str(msg))
+
+
+def list_tasks(include_completed: bool = False) -> list[dict]:
+    r = requests.get(f"{core_url()}/integrations/google/tasks", timeout=TIMEOUT)
+    if not r.ok:
+        raise RuntimeError(_core_error(r))
+    return [t for t in r.json() if include_completed or t.get("status") != "completed"]
+
+
+def set_task_done(task_id: str, done: bool = True) -> dict:
+    """Conclui (ou reabre) uma tarefa do Google Tasks pelo id, via Planner Core."""
+    r = requests.patch(f"{core_url()}/integrations/google/tasks/{task_id}", timeout=TIMEOUT,
+                       json={"status": "completed" if done else "needsAction"})
+    if not r.ok:
+        raise RuntimeError(_core_error(r))
+    return r.json()
+
+
+def create_task(title: str, notes: str = "", due: str = "") -> dict:
+    body = {"title": title}
+    if notes:
+        body["notes"] = notes
+    if due:
+        body["due"] = due
+    r = requests.post(f"{core_url()}/integrations/google/tasks", timeout=TIMEOUT, json=body)
+    if not r.ok:
+        raise RuntimeError(_core_error(r))
+    return r.json()

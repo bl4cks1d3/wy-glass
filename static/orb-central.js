@@ -109,6 +109,30 @@
     return g.connected ? 'Conectada' + (acc.length ? ': ' + acc.join(', ') : '') : 'Nenhuma conta conectada.';
   };
 
+  // Google Tasks: concluir pelo servidor do oculos (-> Planner Core -> Google)
+  function bindGTasks(refresh) {
+    body.querySelectorAll('[data-gtask]').forEach(
+      (b) =>
+        (b.onclick = async () => {
+          b.classList.add('done');
+          const r = await fetch(`/api/google/tasks/${encodeURIComponent(b.dataset.gtask)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ done: true }),
+          })
+            .then((x) => x.json())
+            .catch(() => ({ error: 'servidor do óculos sem resposta' }));
+          if (r.error) {
+            b.classList.remove('done');
+            toast('Google: ' + r.error);
+            return;
+          }
+          toast('Concluída no Google');
+          setTimeout(refresh, 450);
+        }),
+    );
+  }
+
   /* ---------------- areas ---------------- */
   const VIEWS = {
     async hoje() {
@@ -132,9 +156,10 @@
         (gt.length
           ? u.sec(
               'Google Tasks para hoje',
-              u.grp(gt.map((t) => u.row({ t: t.title, when: 'prazo ' + u.fmtDate(t.due) }))),
+              u.grp(gt.map((t) => checkRow(u.row({ t: t.title, when: 'prazo ' + u.fmtDate(t.due) }), `data-gtask="${u.esc(t.id)}"`))),
             )
           : '');
+      bindGTasks(VIEWS.hoje);
       if ($('ctGReconnect'))
         $('ctGReconnect').onclick = async () => {
           const x = await fetch('/api/google/reconnect', { method: 'POST' })
@@ -199,12 +224,15 @@
           gtasks.length
             ? u.grp(
                 gtasks.map((t) =>
-                  u.row({
-                    t: t.title,
-                    d: (t.notes || '').split('\n')[0],
-                    when: t.due ? 'prazo ' + u.fmtDate(t.due) : '',
-                    tags: [t.due && daysUntil(t.due) < 0 ? 'atrasada' : ''],
-                  }),
+                  checkRow(
+                    u.row({
+                      t: t.title,
+                      d: (t.notes || '').split('\n')[0],
+                      when: t.due ? 'prazo ' + u.fmtDate(t.due) : '',
+                      tags: [t.due && daysUntil(t.due) < 0 ? 'atrasada' : ''],
+                    }),
+                    `data-gtask="${u.esc(t.id)}"`,
+                  ),
                 ),
                 30,
               )
@@ -249,6 +277,7 @@
       $('ctTask').onkeydown = (e) => {
         if (e.key === 'Enter') add();
       };
+      bindGTasks(VIEWS.agenda);
       body.querySelectorAll('[data-task]').forEach(
         (b) =>
           (b.onclick = async () => {

@@ -48,6 +48,7 @@ DEFAULT_BARGE_IN_RMS = 2500
 # era o usuario interrompendo. So libera o mic com N blocos seguidos (30 ms cada) acima do limite.
 BARGE_IN_CHUNKS = 3
 LEVEL_EVENT_INTERVAL = 1 / 15
+ECHO_MARGIN = 1.6  # interrupcao so com voz 60% acima do eco medido (percentil 80) enquanto o modelo fala
 KEEPALIVE_S = 20.0  # silencio enviado na pausa pra sessao nao expirar por inatividade
 MAX_RECONNECT_FAILS = 8  # ~3 min de tentativas com espera crescente, depois desiste e avisa
 LOG_PATH = Path(__file__).parent / "live_agent.log"
@@ -627,6 +628,9 @@ async def _session_main(cfg: dict, on_event):
             session_resumption=types.SessionResumptionConfig(handle=resume_handle),
             realtime_input_config=types.RealtimeInputConfig(
                 automatic_activity_detection=types.AutomaticActivityDetection(
+                    # inicio de fala pouco sensivel: o eco do alto-falante open-ear que ainda passa
+                    # pelo gate nao pode contar como o usuario interrompendo (picote na voz)
+                    start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_LOW,
                     end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
                     silence_duration_ms=int(cfg.get("silence_ms", 600)),
                 )),
@@ -638,6 +642,10 @@ async def _session_main(cfg: dict, on_event):
         held = collections.deque(maxlen=BARGE_IN_CHUNKS)  # blocos altos retidos enquanto o modelo fala
         streak = 0
         last_keepalive, last_heard, last_heard_log = 0.0, "", 0.0
+        # nivel do eco enquanto o modelo fala (ultimos ~1,5 s): o mic dos oculos capta a propria voz
+        # do Jarvis a 5-12 mil de RMS com o volume alto -- um limite fixo de 2500 deixava o eco passar
+        # como interrupcao e o Gemini se cortava a cada 2 s
+        echo = collections.deque(maxlen=50)
         while True:
             try:
                 chunk = await loop.run_in_executor(None, mic_q.get, True, 0.2)
@@ -676,7 +684,10 @@ async def _session_main(cfg: dict, on_event):
                 continue
             out: list[bytes] = []
             if speaker.busy():
-                streak = streak + 1 if rms >= barge_in_rms else 0
+                echo.append(rms)
+                echo_level = sorted(echo)[int(len(echo) * 0.8)] if len(echo) >= 10 else 0.0
+                limit = max(barge_in_rms, echo_level * ECHO_MARGIN)
+                streak = streak + 1 if rms >= limit else 0
                 if streak >= BARGE_IN_CHUNKS:
                     # fala sustentada por cima do modelo: manda tambem o que foi retido, senao o
                     # comeco da interrupcao do usuario se perde
@@ -692,6 +703,7 @@ async def _session_main(cfg: dict, on_event):
             else:
                 streak = 0
                 held.clear()
+                echo.clear()
                 out = [samples.tobytes()]
             for data in out:
                 await session.send_realtime_input(audio=types.Blob(data=data, mime_type=f"audio/pcm;rate={IN_RATE}"))

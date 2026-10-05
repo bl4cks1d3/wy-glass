@@ -1,9 +1,8 @@
 """
-brain_office.py — ponte com o Brain Office (repo brain-agents): o escritorio de agentes residentes
-(setor-agenda, setor-faculdade, setor-clientes...) que rodam no Claude Agent SDK.
+brain_office.py — ponte com o escritorio: os agentes residentes (setor-agenda, setor-faculdade,
+setor-clientes...) que rodam no Claude Agent SDK, servico em services/office deste repo.
 
-Fala com a API REST que o proprio painel do escritorio usa (server/src/brain/routes.ts, prefixo
-/api/brain). Autenticacao: header x-brain-token com o token persistido em
+Fala com a API REST do escritorio (services/office/src/routes.ts, prefixo /api/brain). Autenticacao: header x-brain-token com o token persistido em
 ~/.pixel-agents/brain/token (o mesmo que o painel usa na rede local) -- chamada de 127.0.0.1 sem
 Origin tambem passaria, mas o token deixa a ponte valida mesmo se o escritorio rodar em outra
 maquina (config.json > brain_office.url).
@@ -21,7 +20,7 @@ from pathlib import Path
 import requests
 
 PIXEL_DIR = Path.home() / ".pixel-agents"
-DEFAULT_PORT = 3456  # npm run office (brain-agents/package.json)
+DEFAULT_PORT = 3456  # npm run office
 REPLY_TIMEOUT = 150
 POLL_SECONDS = 1.5
 
@@ -35,16 +34,18 @@ def _cfg() -> dict:
 
 
 def office_dir() -> Path:
-    """Raiz do monorepo do Brain Office. O Wy Glass mora em <office>/services/wyglass, entao por
-    padrao e so subir duas pastas; config.json > brain_office.repo_dir sobrescreve (ex.: rodar o
-    oculos fora do monorepo)."""
+    """Raiz do monorepo (data/, life/, services/). E a propria pasta do Wy Glass; a instalacao
+    antiga morava em brain-agents/services/wyglass (sobe duas pastas). config.json >
+    brain_office.repo_dir sobrescreve."""
     configured = _cfg().get("repo_dir")
     if configured:
         return Path(configured)
     here = Path(__file__).resolve().parent
+    if (here / "services" / "office").is_dir():
+        return here
     if here.parent.name == "services":
         return here.parent.parent
-    return Path.home() / "Documents" / "repo" / "brain-agents"
+    return here
 
 
 def expand(value):
@@ -117,19 +118,28 @@ def is_up() -> bool:
 
 def start() -> str:
     """Sobe o escritorio (mesmo comando do `npm run office`) como processo independente. Ele
-    tambem sobe o Planner Core, o agente, a voz e o Current Brain (supervisor de servicos)."""
+    tambem sobe o Planner Core, o agente e o Current Brain (supervisor de servicos) -- mas nao
+    outro Wy Glass: quem esta chamando ja e o Wy Glass."""
     if is_up():
-        return "O Brain Office ja esta rodando."
+        return "O escritorio ja esta rodando."
     repo = office_dir()
+    main = repo / "services" / "office" / "src" / "main.ts"
     cli = repo / "dist" / "cli.js"
-    if not cli.exists():
-        return f"Nao achei o build do Brain Office em {cli} (rode npm run build no brain-agents)."
+    if main.exists():
+        if not (repo / "node_modules" / "tsx").exists():
+            return f"Faltam as dependencias do escritorio em {repo} (rode npm run setup)."
+        cmd = ["node", "--no-warnings", "--import", "tsx", str(main), "--port", str(DEFAULT_PORT)]
+    elif cli.exists():
+        cmd = ["node", str(cli), "--port", str(DEFAULT_PORT)]
+    else:
+        return f"Nao achei o escritorio em {repo} (services/office ou dist/cli.js)."
+    env = {**os.environ, "BRAIN_SVC_WYGLASS": "false"}
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     log = open(Path(__file__).parent / "brain_office.log", "a", encoding="utf-8")
-    subprocess.Popen(["node", str(cli), "--port", str(DEFAULT_PORT)], cwd=str(repo), stdout=log,
-                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, creationflags=flags, close_fds=True)
+    subprocess.Popen(cmd, cwd=str(repo), env=env, stdout=log, stderr=subprocess.STDOUT,
+                     stdin=subprocess.DEVNULL, creationflags=flags, close_fds=True)
     for _ in range(40):
         time.sleep(0.5)
         if is_up():

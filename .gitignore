@@ -43,3 +43,13 @@ android-app/app/libs/*.aar
 live_agent.log
 brain_office.log
 models/
+
+# Node (servicos em services/)
+node_modules/
+services/**/dist/
+*.tsbuildinfo
+
+# Dados do escritorio, Planner e Current Brain (bancos, vault) e segredos
+data/
+.env
+office.log

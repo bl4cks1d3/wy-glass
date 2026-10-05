@@ -14,6 +14,7 @@
       '<circle cx="6.5" cy="14" r="3.5"/><circle cx="17.5" cy="14" r="3.5"/><path d="M10 14h4M3 13l2-6M21 13l-2-6"/>',
     plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v4" />',
     key: '<circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l3 3M14 9l2 2"/>',
+    gcal: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   };
   const SECTIONS = [
     { id: 'perfil', label: 'Perfil', icon: 'person', color: '#0a84ff' },
@@ -23,6 +24,7 @@
     { id: 'ferramentas', label: 'Ferramentas', icon: 'wrench', color: '#64d2ff' },
     { id: 'mcp', label: 'Servidores MCP', icon: 'plug', color: '#5e5ce6' },
     { id: 'dispositivo', label: 'Óculos', icon: 'glasses', color: '#30d158' },
+    { id: 'google', label: 'Conta Google', icon: 'gcal', color: '#ff453a' },
     { id: 'chaves', label: 'Chaves de API', icon: 'key', color: '#8e8e93' },
   ];
   const LIVE_MODELS = [
@@ -576,6 +578,25 @@
         await fetch('/api/mcp/reconnect', { method: 'POST' });
         dispatchEvent(new Event('wy:config'));
         show('mcp');
+      };
+    },
+
+    async google() {
+      const g = await fetch('/api/google?days=1')
+        .then((r) => r.json())
+        .catch(() => ({ errors: ['Servidor do óculos sem resposta.'] }));
+      if (current !== 'google') return;
+      const ok = g.connected && !(g.errors || []).length;
+      group('Conta', [
+        `<div class="row">${lbl('Status', (g.errors || []).join(' '))}<span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'conectada' : g.connected ? 'com erro' : 'desconectada'}</span></div>`,
+        info('E-mail', esc((g.accounts || []).filter(Boolean).join(', ') || '—')),
+        `<div class="row">${lbl('Reconectar', 'Abre o login do Google no navegador. Depois de autorizar, a Agenda e o Tasks voltam sozinhos.')}<button class="pbtn primary" id="gRe">Reconectar Google</button></div>`,
+      ]);
+      $('gRe').onclick = async () => {
+        const r = await fetch('/api/google/reconnect', { method: 'POST' })
+          .then((x) => x.json())
+          .catch(() => ({}));
+        toast(r.message || 'Abri o navegador pra reconectar');
       };
     },
 

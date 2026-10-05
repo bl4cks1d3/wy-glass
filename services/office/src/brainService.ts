@@ -9,18 +9,20 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { normalizeProjectPath } from '../../../core/src/normalizeProjectPath.js';
-import type { AgentRuntime } from '../agentRuntime.js';
-import type { AgentStateStore } from '../agentStateStore.js';
-import { DEFAULT_MAX_CONTEXT_TOKENS } from '../constants.js';
-import { startFileWatching } from '../fileWatcher.js';
-import { assignPaletteIfNeeded } from '../paletteAssigner.js';
-import { claudeProvider } from '../providers/index.js';
-import type { AgentState } from '../types.js';
 import { describeRule, ruleMatches, suggestRule } from './approvalRules.js';
 import { type HojeSnapshot, readHoje, resolveIntegrationPaths } from './integrations.js';
 import { LocalData, resolveVaultDir } from './localData.js';
 import { BrainPersistence, type PersistedQueueItem } from './persistence.js';
+import {
+  type AgentRuntime,
+  type AgentState,
+  type AgentStateStore,
+  assignPaletteIfNeeded,
+  claudeProvider,
+  DEFAULT_MAX_CONTEXT_TOKENS,
+  normalizeProjectPath,
+  startFileWatching,
+} from './pixelShim.js';
 import { discoverAgents } from './registry.js';
 import {
   buildReminder,

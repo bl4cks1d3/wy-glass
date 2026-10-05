@@ -102,6 +102,13 @@
     $('ctRetry') && ($('ctRetry').onclick = () => show(st.section));
   }
 
+  // conta Google sempre com botao de reconectar: o erro quando houver, senao a conta conectada
+  const gStatus = (g) => {
+    if ((g.errors || []).length) return g.errors.join(' ');
+    const acc = (g.accounts || []).filter(Boolean);
+    return g.connected ? 'Conectada' + (acc.length ? ': ' + acc.join(', ') : '') : 'Nenhuma conta conectada.';
+  };
+
   /* ---------------- areas ---------------- */
   const VIEWS = {
     async hoje() {
@@ -117,9 +124,7 @@
       const r = window.wyCards._render.hoje(hoje);
       const u = U();
       head('Hoje', r.sub);
-      const banner = (google.errors || []).length
-        ? `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google Agenda e Tasks</div><div class="d">${u.esc(google.errors.join(' '))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`
-        : '';
+      const banner = `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google Agenda e Tasks</div><div class="d">${u.esc(gStatus(google))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`;
       const gt = (google.tasks || []).filter((t) => t.due && daysUntil(t.due) <= 0);
       body.innerHTML =
         banner +
@@ -166,9 +171,7 @@
         );
       const events = google.events || [];
       const gtasks = google.tasks || [];
-      const gErr = (google.errors || []).length
-        ? `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google</div><div class="d">${u.esc(google.errors.join(' '))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`
-        : '';
+      const gErr = `<div class="cd-grp" style="margin-bottom:10px"><div class="cd-row"><div class="main"><div class="t">Google</div><div class="d">${u.esc(gStatus(google))}</div></div><button class="ct-mini" id="ctGReconnect">Reconectar Google</button></div></div>`;
       body.innerHTML =
         gErr +
         `<div class="ct-add"><input id="ctTask" placeholder="Nova tarefa…" maxlength="200"><input id="ctTaskDate" type="date"><button class="ct-btn primary" id="ctTaskAdd">Adicionar</button></div>` +

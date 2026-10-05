@@ -152,11 +152,12 @@ function defs(repoDir: string): ServiceDef[] {
     },
     {
       // Off unless BRAIN_SVC_WYGLASS=true: the glasses server is often started on its own
-      // (tray/shortcut), and two copies fight over port 8731 and the single BLE link.
+      // (tray/shortcut), and two copies fight over port 8731 and the single BLE link. When the
+      // glasses server is the one starting the office, it passes BRAIN_SVC_WYGLASS=false.
       id: 'wyglass',
       label: 'Wy Glass (óculos: BLE, voz Live, agentes)',
       envFlag: 'BRAIN_SVC_WYGLASS',
-      cwd: path.join(repoDir, 'services', 'wyglass'),
+      cwd: repoDir,
       command: process.env.WYGLASS_PYTHON || 'python',
       args: ['server.py'],
       port: () => 8731,

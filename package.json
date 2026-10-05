@@ -1,0 +1,29 @@
+{
+  "name": "wy-glass",
+  "private": true,
+  "description": "Wy Glass: oculos inteligentes com voz Live, agentes residentes, Planner Life e Current Brain num so repo",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "services/office",
+    "services/planner/packages/*",
+    "services/brain/packages/*",
+    "services/brain/apps/*"
+  ],
+  "scripts": {
+    "setup": "npm install && npm run build:services",
+    "build:services": "npm run build -w @planner-life/shared -w @planner-life/mcp -w @planner-life/core -w @planner-life/agent -w @planner-life/voice",
+    "office": "node --no-warnings --import tsx services/office/src/main.ts --port 3456",
+    "check-types": "tsc --noEmit -p services/office/tsconfig.json",
+    "brain:ingest": "node --no-warnings --import tsx services/brain/packages/core/src/cli.ts ingest",
+    "brain:mcp": "node --no-warnings --import tsx services/brain/apps/mcp/src/index.ts",
+    "planner:mcp:install": "node services/planner/scripts/install-mcp.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.x",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

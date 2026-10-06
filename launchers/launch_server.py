@@ -11,10 +11,16 @@ where the .exe itself sits.
 
 import socket
 import subprocess
+import sys
 from pathlib import Path
 
-PYTHON_EXE = r"C:\Users\bl4cks1d3\AppData\Local\Python\pythoncore-3.14-64\python.exe"
-BASE_DIR = Path(r"C:\Users\bl4cks1d3\Documents\repo\claude\projects\cerebro-oculos\wy-glass")
+# o Python que tem as dependencias do app; o pythoncore-3.14-64 tambem instalado nao tem vosk nem
+# google-genai
+PYTHON_EXE = r"C:\Users\bl4cks1d3\AppData\Local\Programs\Python\Python314\python.exe"
+# rodando como .py: a raiz do repo e a pasta acima de launchers/; congelado em .exe, o caminho fixo.
+# Antes era sempre fixo na pasta antiga (claude/projects/cerebro-oculos).
+BASE_DIR = (Path(r"C:\Users\bl4cks1d3\Documents\repo\wy-glass") if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent.parent)
 
 
 def port_open(port: int, host: str = "127.0.0.1") -> bool:

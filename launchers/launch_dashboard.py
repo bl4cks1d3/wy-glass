@@ -7,10 +7,17 @@ the way. The .exe can live anywhere — the project path is hardcoded below.
 """
 
 import subprocess
+import sys
 from pathlib import Path
 
-PYTHON_EXE = r"C:\Users\bl4cks1d3\AppData\Local\Python\pythoncore-3.14-64\python.exe"
-BASE_DIR = Path(r"C:\Users\bl4cks1d3\Documents\repo\claude\projects\cerebro-oculos\wy-glass")
+# o Python que tem as dependencias do app (pywebview, vosk, google-genai...); o pythoncore-3.14-64
+# tambem instalado nao tem o pywebview e o dashboard nao abria como janela. pythonw: sem console
+PYTHON_EXE = r"C:\Users\bl4cks1d3\AppData\Local\Programs\Python\Python314\pythonw.exe"
+# rodando como .py: a raiz do repo e a pasta acima de launchers/. Congelado em .exe (PyInstaller) o
+# __file__ nao aponta pro repo, entao vale o caminho fixo. Antes era sempre fixo -- e apontava pra
+# pasta antiga (claude/projects/cerebro-oculos), que abria o dashboard antigo.
+BASE_DIR = (Path(r"C:\Users\bl4cks1d3\Documents\repo\wy-glass") if getattr(sys, "frozen", False)
+            else Path(__file__).resolve().parent.parent)
 
 
 def main():

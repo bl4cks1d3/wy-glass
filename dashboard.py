@@ -267,10 +267,42 @@ def open_app_mode():
     dashboard_launcher.open_orb()
 
 
+_INSTANCE_MUTEX = None
+
+
+def _already_running() -> bool:
+    """Uma instancia so: clicar de novo no atalho abria outro dashboard (e outra WebView2 brigando
+    pela mesma pasta de dados). Mutex nomeado do Windows -- some sozinho quando o processo morre,
+    sem arquivo de trava pra ficar orfao."""
+    global _INSTANCE_MUTEX
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    k32.CreateMutexW.restype = ctypes.c_void_p
+    _INSTANCE_MUTEX = k32.CreateMutexW(None, False, r"Local\WyGlass.Dashboard")
+    return k32.GetLastError() == 183  # ERROR_ALREADY_EXISTS
+
+
+def _focus_existing():
+    """Traz o dashboard ja aberto pra frente; se ele estava como orb flutuante, volta a janela cheia."""
+    import ctypes
+    u32 = ctypes.windll.user32
+    hwnd = u32.FindWindowW(None, "Wy Glass")
+    if not hwnd:
+        return
+    bubble = u32.FindWindowW("WyGlassBubble", None)
+    if bubble:
+        u32.ShowWindow(bubble, 0)  # SW_HIDE
+    u32.ShowWindow(hwnd, 9)  # SW_RESTORE (mostra tambem se estava escondida pela bolha)
+    u32.SetForegroundWindow(hwnd)
+
+
 def main():
     if "--classico" in sys.argv:
         import dashboard_classic
         dashboard_classic.main()
+        return
+    if _already_running():
+        _focus_existing()
         return
     ensure_server_running()
     try:

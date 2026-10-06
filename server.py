@@ -1012,7 +1012,24 @@ async def websocket_endpoint(ws: WebSocket):
         state.websockets.discard(ws)
 
 
+def _port_taken(port: int = 8731) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sk:
+        try:
+            sk.bind(("127.0.0.1", port))
+            return False
+        except OSError:
+            return True
+
+
 if __name__ == "__main__":
+    # Antes de tudo: o uvicorn roda o startup (BLE, microfone, escuta passiva, MCPs) ANTES de abrir a
+    # porta. Com outro servidor ja na 8731, cada tentativa ligava tudo isso, falhava no bind e morria
+    # -- o supervisor repetiu isso 472 vezes e o vaivem tomava o microfone do servidor que estava no
+    # ar: durante a pausa do Live o detector de palavra de ativacao parou de ouvir.
+    if _port_taken():
+        print("[server] porta 8731 ja em uso por outro Wy Glass; saindo sem tocar em BLE/microfone", flush=True)
+        sys.exit(0)
     try:
         import tray_icon
         tray_icon.start()

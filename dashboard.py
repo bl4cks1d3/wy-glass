@@ -215,6 +215,18 @@ def ensure_server_running():
     sozinha e nao houver servidor, sobe um destacado, que continua vivo depois da janela fechar."""
     if _server_reachable():
         return
+    # Com o escritorio no ar e o servico wyglass ligado, quem sobe o servidor e o supervisor (ele pode
+    # estar so reiniciando): subir um avulso aqui criava dois Wy Glass disputando porta e microfone.
+    try:
+        svcs = requests.get("http://127.0.0.1:3456/api/brain/services", timeout=2).json().get("services", [])
+        if any(sv.get("id") == "wyglass" and sv.get("enabled") for sv in svcs):
+            for _ in range(60):
+                if _server_reachable():
+                    return
+                time.sleep(0.5)
+            return
+    except (requests.RequestException, ValueError):
+        pass
     flags = 0
     if sys.platform == "win32":
         flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP

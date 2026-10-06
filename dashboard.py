@@ -29,8 +29,6 @@ MIN_SIZE = (420, 640)
 # fundo da janela igual ao do orb (--bg do tema escuro): sem flash branco enquanto a pagina carrega
 BG_COLOR = "#050507"
 STORAGE_DIR = Path(os.environ.get("APPDATA", Path.home())) / "WyGlass" / "webview"
-BUBBLE_SIZE = (200, 236)  # orbe com os aneis + etiqueta de estado embaixo
-BUBBLE_MARGIN = 24
 
 
 def work_area() -> tuple[float, float, float, float]:
@@ -56,22 +54,12 @@ class ShellApi:
         self._maximized = "--janela" not in sys.argv
 
     def _bubble_window(self):
-        import webview
+        # janela nativa com alfa por pixel (bubble_native): a WebView2 nao fica transparente de
+        # verdade no WinForms e deixava um quadrado em volta do circulo
         if self._bubble is None:
-            w, h = BUBBLE_SIZE
-            _, _, right, bottom = work_area()
-            x, y = int(right - w - BUBBLE_MARGIN), int(bottom - h - BUBBLE_MARGIN)
-            # criada sob demanda (e nao hidden=True no inicio): no WinForms a transparencia so
-            # funciona no caminho de janela criada visivel
-            self._bubble = webview.create_window(
-                "Wy Glass · assistente", f"{ORB_URL}?mode=bubble", js_api=self, width=w, height=h,
-                x=x, y=y, frameless=True, transparent=True, on_top=True, shadow=False,
-                resizable=False, focus=False, background_color=BG_COLOR)
-            # o WinForms desconta uma barra de titulo que a janela sem moldura nao tem: reaplica
-            # o tamanho depois de aparecer
-            self._bubble.events.shown += lambda: self._bubble.resize(w, h)
-        else:
-            self._bubble.show()
+            import bubble_native
+            self._bubble = bubble_native.Bubble(on_expand=self.expand)
+        self._bubble.show()
         return self._bubble
 
     def to_bubble(self):
@@ -107,7 +95,7 @@ class ShellApi:
 
     def close(self):
         if self._bubble is not None:
-            self._bubble.destroy()
+            self._bubble.close()
         self._main.destroy()
 
 

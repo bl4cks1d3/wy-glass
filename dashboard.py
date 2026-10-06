@@ -25,6 +25,9 @@ BASE_DIR = Path(__file__).parent
 BASE_URL = "http://127.0.0.1:8731"
 ORB_URL = f"{BASE_URL}/orb"
 WINDOW_SIZE = (1240, 860)
+FLOAT_SIZE = (460, 680)  # painel flutuante (agenda, cards dos agentes) por cima de qualquer app
+FLOAT_MARGIN = 20
+APP_ID = "WyGlass.Desktop"  # identidade propria na barra de tarefas (senao agrupa como pythonw)
 MIN_SIZE = (420, 640)
 # fundo da janela igual ao do orb (--bg do tema escuro): sem flash branco enquanto a pagina carrega
 BG_COLOR = "#050507"
@@ -51,6 +54,8 @@ class ShellApi:
     def __init__(self):
         self._main = None
         self._bubble = None
+        self._float = None
+        self._float_pending = None
         self._maximized = "--janela" not in sys.argv
 
     def _bubble_window(self):
@@ -93,9 +98,95 @@ class ShellApi:
         self._maximized = not self._maximized
         self._fill() if self._maximized else self._windowed()
 
+    # -- painel flutuante: o que o Jarvis mostra aparece por cima do app em que o usuario esta,
+    # sem abrir a janela cheia nem a Central inteira
+
+    def show_panel(self, payload: str) -> bool:
+        """Chamado pelo orb quando o Jarvis manda mostrar algo. Com a janela cheia na frente do
+        usuario, devolve False e o orb mostra ali mesmo; senao abre o painel flutuante. Quem diz
+        se ela esta na frente e o Windows: a WebView2 continua achando que tem foco mesmo escondida."""
+        import ctypes
+        u32 = ctypes.windll.user32
+        try:
+            hwnd = self._main.native.Handle.ToInt64()
+            in_front = (u32.IsWindowVisible(ctypes.c_void_p(hwnd)) and not u32.IsIconic(ctypes.c_void_p(hwnd))
+                        and u32.GetForegroundWindow() == hwnd)
+        except Exception:
+            in_front = False
+        if in_front:
+            return False
+        self.float_open(payload)
+        return True
+
+    def float_open(self, payload: str):
+        """payload: JSON {kind: central|card|tool, ...} montado pelo orb da janela principal."""
+        import webview
+        if self._float is None:
+            left, top, right, bottom = work_area()
+            w, h = FLOAT_SIZE[0], int(min(FLOAT_SIZE[1], bottom - top - 2 * FLOAT_MARGIN))
+            self._float_pending = payload
+            self._float = webview.create_window(
+                "Wy Glass · painel", f"{ORB_URL}?mode=float", js_api=self, width=w, height=h,
+                x=int(right - w - FLOAT_MARGIN), y=int(top + FLOAT_MARGIN), min_size=(360, 420),
+                frameless=True, on_top=True, background_color=BG_COLOR, text_select=True)
+            self._float.events.shown += lambda: self._float_shape(w, h)
+            self._float.events.loaded += self._float_loaded
+            return
+        self._float.show()
+        self._float.evaluate_js(f"window.__wyFloat({payload})")
+        self._bring_front(self._float)
+
+    @staticmethod
+    def _bring_front(win):
+        """Primeiro plano de verdade (foco), nao so por cima. O Windows nao deixa um app em segundo
+        plano tomar o foco; anexando esta thread a da janela em foco, o SetForegroundWindow vale
+        (sem simular tecla, que abriria o menu do app do usuario)."""
+        import ctypes
+        u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+        try:
+            hwnd = ctypes.c_void_p(win.native.Handle.ToInt64())
+        except Exception:
+            return
+        fg = u32.GetForegroundWindow()
+        fg_tid = u32.GetWindowThreadProcessId(fg, None) if fg else 0
+        me = k32.GetCurrentThreadId()
+        attached = bool(fg_tid and fg_tid != me and u32.AttachThreadInput(me, fg_tid, True))
+        try:
+            if u32.IsIconic(hwnd):
+                u32.ShowWindow(hwnd, 9)  # SW_RESTORE
+            u32.BringWindowToTop(hwnd)
+            u32.SetForegroundWindow(hwnd)
+        finally:
+            if attached:
+                u32.AttachThreadInput(me, fg_tid, False)
+
+    def _float_loaded(self):
+        if self._float_pending:
+            payload, self._float_pending = self._float_pending, None
+            self._float.evaluate_js(f"window.__wyFloat({payload})")
+
+    def _float_shape(self, w: int, h: int):
+        # o WinForms desconta uma barra de titulo que a janela sem moldura nao tem; e sem moldura
+        # o Windows 11 nao arredonda os cantos sozinho -- pede pro DWM
+        import ctypes
+        self._float.resize(w, h)
+        self._bring_front(self._float)
+        try:
+            hwnd = self._float.native.Handle.ToInt64()
+            pref = ctypes.c_int(2)  # DWMWCP_ROUND
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 33, ctypes.byref(pref), 4)
+        except Exception as e:
+            print(f"[dashboard] cantos arredondados: {e}", flush=True)
+
+    def close_float(self):
+        if self._float is not None:
+            self._float.hide()
+
     def close(self):
         if self._bubble is not None:
             self._bubble.close()
+        if self._float is not None:
+            self._float.destroy()
         self._main.destroy()
 
 
@@ -131,6 +222,11 @@ def open_native() -> bool:
     except ImportError:
         return False
     STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except (AttributeError, OSError):
+        pass
     api = ShellApi()
     api._main = webview.create_window(
         "Wy Glass", f"{ORB_URL}?shell=native", js_api=api, width=WINDOW_SIZE[0], height=WINDOW_SIZE[1],

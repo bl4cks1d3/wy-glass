@@ -176,9 +176,10 @@ CENTRAL_SECTIONS = ["hoje", "agenda", "faculdade", "clientes", "projetos", "pesq
 _CENTRAL_SCHEMA = {
     "name": "abrir_central",
     "description": (
-        "Abre a Central na tela do usuario (o orb) numa area do Brain Office: hoje, agenda, faculdade, "
-        "clientes, projetos, pesquisa, vida (habitos e notas), agentes (conversar com os setores) ou "
-        "mural. Use quando ele pedir pra ver/abrir/mostrar uma dessas areas, ou 'abre a central'. "
+        "Mostra uma area do Brain Office num painel flutuante por cima do app em que o usuario esta "
+        "(so a area pedida, nao a Central inteira): hoje, agenda, faculdade, clientes, projetos, "
+        "pesquisa, vida (habitos e notas), agentes (conversar com os setores) ou mural. Use quando ele "
+        "pedir pra ver/abrir/mostrar uma dessas areas ('abre minha agenda'). "
         "Pedido pra CONVERSAR/FALAR com um setor ou agente (ex: 'quero falar com o setor de faculdade') "
         "e secao=agentes com agente=<setor>, nao a area de dados do setor. Use 'fechar' pra fechar."
     ),
@@ -481,9 +482,10 @@ escritorio. Perguntas a um agente demoram: avise "vou passar pro setor X" antes.
 
 TELA: o usuario ve uma tela (o orb) enquanto fala com voce. Resultados de ferramentas de dados
 aparecem nela automaticamente como painel; quando montar uma resposta com listas, numeros,
-comparacoes ou passos, chame mostrar_na_tela e fale so o resumo ("coloquei na tela"). A CENTRAL
-(abrir_central) mostra as areas completas do Brain Office (hoje, agenda, faculdade, clientes,
-projetos, pesquisa, vida, agentes, mural): abra quando ele quiser ver uma area inteira.
+comparacoes ou passos, chame mostrar_na_tela e fale so o resumo ("coloquei na tela"). Os paineis
+abrem flutuando por cima do app em que ele estiver, sem tirar ele do que esta fazendo. Pedido pra
+ABRIR/VER uma area ("abre minha agenda") -> abrir_central com a secao. PERGUNTA sobre ela ("o que
+tenho hoje?") -> responda falando, usando os dados (o painel com os dados aparece sozinho).
 
 PAUSA: se o usuario pedir pra voce esperar porque vai falar com outra pessoa, responda em no maximo
 3 palavras e chame pausar_conversa. Quando ele voltar (a conversa recomeca sozinha), retome de onde

@@ -957,6 +957,15 @@
     }
   }
 
+  // mesmo criterio do fromTool, sem desenhar: o orb usa pra decidir se abre o painel flutuante
+  function accepts(m) {
+    if (!m || m.phase !== 'end' || !m.ok || !m.data) return false;
+    const name = m.name || '';
+    if (name.startsWith('mcp__')) return !WRITE_TOOLS.has(name.split('__')[2]);
+    if (name === 'ler_dados_da_vida') return true;
+    return name === 'escritorio' && ESCRITORIO_VISUAL.has((m.args || {}).action);
+  }
+
   function fromAgent(card) {
     if (!card) return;
     push({ src: 'jarvis', ...safe(() => agentCard(card), card.titulo || 'Jarvis', card) });
@@ -964,6 +973,7 @@
 
   window.wyCards = {
     fromTool,
+    accepts,
     fromAgent,
     close,
     _render: { generic, vida, hoje, agentCard, BRAIN, PLANNER },

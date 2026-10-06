@@ -12,7 +12,8 @@ na Siri) e e feito com numpy. O estado vem do WebSocket do
 servidor (/ws), o mesmo que o orb usa.
 
 Interacao: clique liga/desliga o Live; duplo clique (ou o botao de expandir que aparece no hover)
-abre a janela cheia; arrastar move; no hover, com o Live rodando, aparece o botao de pausa.
+abre a janela cheia; arrastar move; no hover, com o Live rodando, aparece o botao de pausa. O que o
+Jarvis mostra (agenda, cards) abre no painel flutuante, decidido pelo orb da janela principal.
 """
 import ctypes
 import json
@@ -271,8 +272,6 @@ class Bubble:
         elif kind == "live_level":
             self.in_level = max(self.in_level, float(m.get("in") or 0))
             self.out_level = max(self.out_level, float(m.get("out") or 0))
-        elif kind in ("live_central", "live_card") and self.visible:
-            self.on_expand()  # o agente quer mostrar algo: a janela cheia abre
 
     def _listen(self):
         from websockets.sync.client import connect

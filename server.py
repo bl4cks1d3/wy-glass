@@ -586,6 +586,12 @@ async def startup():
     state.loop = asyncio.get_event_loop()
     import office_notifier
     office_notifier.start(_on_office_nudge)
+    import voice_terminal
+    # terminal por voz: andamento vai pro orb; o fim e falado pelo mesmo caminho dos avisos do
+    # escritorio (Live se estiver ligado, senao Piper; respeita o horario de silencio)
+    voice_terminal.set_hooks(
+        emit=lambda payload: asyncio.run_coroutine_threadsafe(broadcast(payload), state.loop),
+        announce=lambda text: _on_office_nudge(text, "terminal"))
     state.ble_task = asyncio.create_task(ble_manager())
     asyncio.create_task(groq_model_healthcheck())
     asyncio.create_task(battery_monitor())
@@ -876,6 +882,31 @@ async def google_snapshot(days: int = 7):
     import google_bridge
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, google_bridge.snapshot, days)
+
+
+# ---- terminal por voz (Claude Code) ----
+@app.get("/api/terminal")
+async def terminal_state():
+    import voice_terminal
+    return voice_terminal.snapshot()
+
+
+@app.post("/api/terminal/{action}")
+async def terminal_action(action: str, request: Request):
+    """Mesmo que a ferramenta de voz faz, pelo painel (campo de texto e botoes)."""
+    import voice_terminal as vt
+    body = await request.json() if (request.headers.get("content-type") or "").startswith("application/json") else {}
+    loop = asyncio.get_event_loop()
+    handlers = {
+        "ask": lambda: vt.ask((body.get("text") or "").strip()) if (body.get("text") or "").strip() else "texto vazio",
+        "cd": lambda: vt.change_dir(body.get("path", "")),
+        "stop": vt.stop,
+        "new": vt.new_session,
+        "ls": vt.listing,
+    }
+    if action not in handlers:
+        return JSONResponse({"error": "acao desconhecida"}, status_code=404)
+    return {"message": await loop.run_in_executor(None, handlers[action]), **vt.snapshot()}
 
 
 @app.post("/api/google/tasks/{task_id}")

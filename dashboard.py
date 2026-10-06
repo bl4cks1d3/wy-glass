@@ -101,12 +101,24 @@ class ShellApi:
     # -- painel flutuante: o que o Jarvis mostra aparece por cima do app em que o usuario esta,
     # sem abrir a janela cheia nem a Central inteira
 
+    def _visible(self, win) -> bool:
+        import ctypes
+        try:
+            return bool(win is not None and ctypes.windll.user32.IsWindowVisible(ctypes.c_void_p(win.native.Handle.ToInt64())))
+        except Exception:
+            return False
+
     def show_panel(self, payload: str) -> bool:
-        """Chamado pelo orb quando o Jarvis manda mostrar algo. Com a janela cheia na frente do
-        usuario, devolve False e o orb mostra ali mesmo; senao abre o painel flutuante. Quem diz
-        se ela esta na frente e o Windows: a WebView2 continua achando que tem foco mesmo escondida."""
+        """Chamado pelo orb quando o Jarvis manda mostrar algo; abre onde o usuario ja esta olhando:
+        1) painel flutuante aberto -> nele (antes abria tambem na janela cheia e ficavam os dois);
+        2) janela cheia na frente -> devolve False e o orb mostra ali mesmo; 3) senao, painel
+        flutuante. Quem diz o que esta na frente e o Windows: a WebView2 continua achando que tem
+        foco mesmo escondida."""
         import ctypes
         u32 = ctypes.windll.user32
+        if self._visible(self._float):
+            self.float_open(payload)
+            return True
         try:
             hwnd = self._main.native.Handle.ToInt64()
             in_front = (u32.IsWindowVisible(ctypes.c_void_p(hwnd)) and not u32.IsIconic(ctypes.c_void_p(hwnd))

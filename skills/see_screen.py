@@ -3,18 +3,24 @@ SCHEMA = {
     "function": {
         "name": "see_screen",
         "description": (
-            "Tira um print da tela do usuario e DESCREVE em voz o que esta sendo visto (nao "
-            "salva arquivo nenhum). Use quando o usuario pedir pra ver/olhar/visualizar a "
-            "tela dele, ou perguntar o que tem na tela — nao quando ele pedir pra 'tirar um "
-            "print'/'salvar um print' (isso e take_screenshot)."
+            "Olha a tela do usuario (print na hora, nada e salvo) e responde: sem pergunta, descreve "
+            "o que esta aberto; com pergunta, responde sobre a tela ('o que diz esse e-mail?', 'qual "
+            "o preco?', 'onde fica o botao de enviar?'). Use quando ele pedir pra ver/olhar a tela ou "
+            "antes de agir numa tela que voce nao conhece -- nao quando pedir pra 'tirar/salvar um "
+            "print' (isso e take_screenshot)."
         ),
-        "parameters": {"type": "object", "properties": {}},
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "pergunta": {"type": "string", "description": "o que procurar ou responder sobre a tela (opcional)"},
+            },
+        },
     },
 }
 
 
 def execute(args: dict, ctx: dict) -> tuple[str, bool]:
-    # describe_screen fica em smart_agent.py (usa o modelo de visao da Groq) — repassado via
-    # ctx pra esta skill nao precisar importar smart_agent de volta (evitaria ciclo de import).
-    describe_screen = ctx["describe_screen"]
-    return describe_screen(ctx.get("groq_api_key", "")), True
+    # visao do Gemini (a mesma do pc_click): o modelo de visao da Groq usado antes saiu do ar (404)
+    import pc_control
+    from skills.pc_click import _google_key
+    return pc_control.describe(args.get("pergunta", ""), _google_key(ctx), ctx.get("vision_model")), True

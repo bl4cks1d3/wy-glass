@@ -19,8 +19,11 @@ from pathlib import Path
 # medido apontando elementos da barra de tarefas numa tela 1920x1200: 3.5-flash-lite sem raciocinio
 # acerta no pixel em ~2-4s; os flash "pensantes" acertam igual mas levam 20-30s (inviavel por voz)
 # e o 2.5-flash e rapido mas errou o relogio em ~130px
-VISION_MODEL = "gemini-3.5-flash-lite"
-VISION_FALLBACKS = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
+# 2026-10-06, botao Iniciar em (628, 1170): 3.1-flash-lite apontou (634, 1168); o 3.5-flash-lite
+# passou a apontar o meio da barra (966) e o 2.5-flash o widget do clima. A visao agora e reserva:
+# o clique vai primeiro pela UI Automation (ui_automation.py)
+VISION_MODEL = "gemini-3.1-flash-lite"
+VISION_FALLBACKS = ["gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-2.5-flash"]
 
 # apelido falado -> comando. O resto cai na busca por atalho no Menu Iniciar.
 _APP_ALIASES = {
@@ -257,46 +260,53 @@ def _fast_thinking(model: str):
     return types.ThinkingConfig(thinking_level="minimal" if "lite" in model else "low")
 
 
-def locate(description: str, google_api_key: str, model: str | None = None) -> tuple[int, int] | None:
-    """Pixel (x, y) do elemento descrito, ou None se o modelo nao achar."""
+def _vision(prompt: str, google_api_key: str, model: str | None = None, json_out: bool = False,
+            max_side: int = 1600):
+    """Print da tela + pergunta pro modelo de visao (com fallback entre modelos). Devolve
+    (texto da resposta, monitor capturado)."""
     import io
-    import json
     from google import genai
     from google.genai import types
 
     img, mon = _screenshot()
-    # imagem reduzida: o modelo devolve coordenada normalizada, entao resolucao menor so
-    # economiza upload/latencia sem perder precisao relevante pra um clique
+    # imagem reduzida: coordenadas voltam normalizadas, entao resolucao menor so economiza
+    # upload/latencia sem perder precisao relevante
     small = img.copy()
-    small.thumbnail((1600, 1600))
+    small.thumbnail((max_side, max_side))
     buf = io.BytesIO()
     small.save(buf, format="JPEG", quality=85)
-    prompt = (
-        "Voce controla o mouse. Encontre na captura de tela o elemento descrito e responda SO com JSON "
-        '{"found": true|false, "point": [y, x]} com o ponto central do elemento normalizado de 0 a 1000. '
-        f"Elemento: {description}"
-    )
     # sem retry longo do SDK: com o usuario esperando por voz, e melhor cair pro proximo modelo
     # (503 de sobrecarga no alias "latest" acontece) do que travar 60s+ no mesmo
     client = genai.Client(api_key=google_api_key,
                           http_options=types.HttpOptions(timeout=12_000, retry_options=types.HttpRetryOptions(attempts=1)))
-    resp, last_err = None, None
+    last_err = None
     for m in dict.fromkeys([model or VISION_MODEL, *VISION_FALLBACKS]):
         try:
             resp = client.models.generate_content(
                 model=m,
                 contents=[types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg"), prompt],
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0,
-                                                   thinking_config=_fast_thinking(m)),
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json" if json_out else None, temperature=0,
+                    thinking_config=_fast_thinking(m)),
             )
-            break
+            return resp.text or "", mon
         except Exception as e:
             last_err = e
             print(f"[pc_control] visao falhou em {m}: {str(e)[:120]}", flush=True)
-    if resp is None:
-        raise RuntimeError(f"nenhum modelo de visao respondeu ({last_err})")
+    raise RuntimeError(f"nenhum modelo de visao respondeu ({last_err})")
+
+
+def locate(description: str, google_api_key: str, model: str | None = None) -> tuple[int, int] | None:
+    """Pixel (x, y) do elemento descrito, ou None se o modelo nao achar."""
+    import json
+    prompt = (
+        "Voce controla o mouse. Encontre na captura de tela o elemento descrito e responda SO com JSON "
+        '{"found": true|false, "point": [y, x]} com o ponto central do elemento normalizado de 0 a 1000. '
+        f"Elemento: {description}"
+    )
+    text, mon = _vision(prompt, google_api_key, model, json_out=True)
     try:
-        data = json.loads(resp.text)
+        data = json.loads(text)
     except (json.JSONDecodeError, TypeError):
         return None
     if not data.get("found") or not data.get("point"):
@@ -305,12 +315,39 @@ def locate(description: str, google_api_key: str, model: str | None = None) -> t
     return mon["left"] + round(x / 1000 * mon["width"]), mon["top"] + round(y / 1000 * mon["height"])
 
 
+def describe(question: str, google_api_key: str, model: str | None = None) -> str:
+    """O que esta na tela, ou a resposta a uma pergunta sobre ela ("o que diz esse e-mail?",
+    "onde fica o botao de enviar?"). Texto curto, pra falar em voz."""
+    ask = question.strip() or "O que esta aberto na tela agora? Cite o programa em foco e o conteudo principal."
+    prompt = (
+        "Voce esta vendo a tela do computador do usuario pra ajuda-lo por voz. Responda em portugues do "
+        "Brasil, em no maximo 3 frases curtas, sem markdown. Leia textos da tela quando for o que ele "
+        "pergunta. Se ele quiser agir (clicar, abrir), diga o nome exato do elemento na tela como ele "
+        f"aparece, pra ser usado depois no clique.\nPergunta: {ask}"
+    )
+    return _vision(prompt, google_api_key, model, max_side=2000)[0].strip()
+
+
 def click_on(description: str, google_api_key: str, button: str = "left", double: bool = False,
              model: str | None = None) -> str:
     import pyautogui
-    pos = locate(description, google_api_key, model)
+    import ui_automation
+    # 1) UI Automation: nome e retangulo exatos vindos do Windows (~1 s, no pixel certo);
+    # 2) pedido ambiguo: o modelo escolhe na lista de nomes (so texto); 3) visao, pra janelas que
+    # nao expoem acessibilidade
+    how, pos = "visao", None
+    try:
+        elems = ui_automation.elements()
+        el = ui_automation.match(description, elems) or ui_automation.pick_with_model(description, elems, google_api_key)
+        if el is not None:
+            how, pos = "uia", el.center
+    except Exception as e:
+        print(f"[pc_control] UI Automation falhou: {str(e)[:120]}", flush=True)
+    if pos is None:
+        pos = locate(description, google_api_key, model)
     if pos is None:
         return f"Nao encontrei '{description}' na tela."
+    print(f"[pc_control] clique em {description!r} via {how} em {pos}", flush=True)
     x, y = pos
     pyautogui.moveTo(x, y, duration=0.15)
     if double:

@@ -3,16 +3,17 @@ SCHEMA = {
     "function": {
         "name": "pc_click",
         "description": (
-            "Mouse guiado por visao: olha a tela e clica no elemento DESCRITO (botao, link, icone, "
-            "campo de texto, aba...), ex: 'botao azul Enviar', 'campo de busca do YouTube', 'icone "
-            "do Spotify na barra de tarefas'. Tambem rola a pagina (scroll). Descreva o elemento com "
-            "texto visivel e posicao quando ajudar. Para digitar num campo: clique nele e depois use "
-            "pc_keyboard."
+            "Clica no elemento DESCRITO na tela (botao, link, icone, campo de texto, aba...), ex: "
+            "'Enviar', 'campo de busca do YouTube', 'Spotify na barra de tarefas'. Acha pelo nome que o "
+            "Windows da ao elemento (rapido e exato) e, se nao der, pela visao. action=listar devolve "
+            "os nomes do que da pra clicar na janela em foco e na barra de tarefas: use antes de "
+            "navegar numa janela desconhecida e passe o nome exato como target. Tambem rola a pagina "
+            "(scroll). Para digitar num campo: clique nele e depois use pc_keyboard."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["click", "double_click", "right_click", "scroll_up", "scroll_down"]},
+                "action": {"type": "string", "enum": ["click", "double_click", "right_click", "scroll_up", "scroll_down", "listar"]},
                 "target": {"type": "string", "description": "descricao do elemento na tela (cliques)"},
                 "amount": {"type": "integer", "description": "intensidade do scroll, 1-30 (default 5)"},
             },
@@ -35,6 +36,10 @@ def _google_key(ctx: dict) -> str:
 def execute(args: dict, ctx: dict) -> tuple[str, bool]:
     import pc_control
     action = args.get("action", "click")
+    if action == "listar":
+        import ui_automation
+        found = ui_automation.summary(ui_automation.elements())
+        return found or "A janela em foco nao expoe os elementos; use see_screen pra olhar.", True
     if action in ("scroll_up", "scroll_down"):
         return pc_control.scroll(action.split("_")[1], args.get("amount", 5)), True
     target = args.get("target", "")

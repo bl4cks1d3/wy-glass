@@ -291,6 +291,19 @@ def _live_running() -> bool:
 
 
 async def fire_gesture(gesture_key: str, raw_hex: str, note: str = ""):
+    if raw_hex == "(escuta passiva)" and (state.config.get("live") or {}).get("wake_starts_live", True):
+        # palavra de ativacao com o app aberto ("hey jarvis" pelo openWakeWord ou as frases do Live
+        # pelo detector local): Live parado -> liga; Live em pausa -> retoma
+        if _live_running():
+            mod = _live_agent()
+            if mod.is_paused():
+                mod.resume(note or "palavra de ativacao")
+            return
+        await broadcast({"type": "gesture", "gesture": gesture_key, "label": "Palavra de ativacao: iniciando o Live",
+                          "raw": raw_hex, "time": ts(), "note": note})
+        await start_live()
+        return
+
     gcfg = state.config["gestures"].get(gesture_key)
 
     if gcfg and gcfg.get("action") == "stop_conversation":
@@ -442,6 +455,13 @@ async def ble_manager():
             await broadcast({"type": "status", "connected": False, "message": f"escaneando {address}..."})
             device = await BleakScanner.find_device_by_address(address, timeout=15.0)
             target = device if device else address
+            # Escuta passiva (palavra de ativacao) so depois do primeiro scan BLE, nao na largada:
+            # o InputStream do sounddevice disputando com o scanner WinRT do bleak no startup
+            # quebrava o bleak ("Thread is configured for Windows GUI but callbacks are not
+            # working", conflito de apartment COM). O scan ja inicializou o WinRT mesmo sem achar
+            # os oculos -- antes so comecava depois de CONECTAR, e com os oculos desligados a
+            # palavra de ativacao nunca funcionava. start() e idempotente.
+            _passive_listener().start(lambda: state.config, lambda gk, note: _on_passive_trigger(loop, gk, note))
 
             disconnected = asyncio.Event()
 
@@ -451,13 +471,6 @@ async def ble_manager():
                 state.connected_at = time.monotonic()
                 await broadcast({"type": "status", "connected": True, "message": "conectado"})
                 asyncio.create_task(_speak_connect_greeting(loop))
-
-                # Started only after BLE's first successful WinRT/MTA init, not at process
-                # startup — sd.InputStream's own thread racing bleak's WinRT scanner during
-                # startup was breaking bleak with "Thread is configured for Windows GUI but
-                # callbacks are not working" (COM apartment conflict). start() is idempotent,
-                # so this is a no-op on reconnects.
-                _passive_listener().start(lambda: state.config, lambda gk, note: _on_passive_trigger(loop, gk, note))
 
                 # client.services e uma propriedade (nao metodo/coroutine) nas versoes atuais do
                 # bleak -- ja populada automaticamente por connect(), sem chamada explicita. Se a

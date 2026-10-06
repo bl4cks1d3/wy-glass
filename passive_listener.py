@@ -1,3 +1,4 @@
+import collections
 import threading
 import time
 from pathlib import Path
@@ -113,6 +114,13 @@ class WakeWordDetector:
             self._proc.kill()
 
 
+RESUME_ONLY = {"pode continuar", "voltei", "continua"}
+PREROLL_CHUNKS = 10  # ~300 ms de audio antes do inicio da fala
+VOICE_MIN_RMS = 500.0
+VOICE_OVER_NOISE = 2.5
+VOICE_HANGOVER_S = 1.8  # o Vosk fecha a frase depois de ~1,5 s de silencio
+
+
 class PassiveListener:
     """Background thread that subscribes to the shared mic (audio_capture) and
     watches for passive triggers (clap, later wake word). Triggers are reported
@@ -130,6 +138,14 @@ class PassiveListener:
         self._clap_cfg_snapshot = None
         self._wake_word_detector: WakeWordDetector | None = None
         self._wake_word_cfg_snapshot = None
+        self._phrase_spotter = None  # wake_spotter.WakeSpotter (Vosk, 100% local)
+        self._phrase_snapshot = None
+        # porteiro de voz na frente do Vosk: em silencio ele nao roda (custava ~24% de um nucleo
+        # o tempo todo); o pre-roll guarda o comeco da fala ("hey") que chega antes do disparo
+        self._noise_floor = 300.0
+        self._preroll = collections.deque(maxlen=PREROLL_CHUNKS)
+        self._voice_until = 0.0
+        self._was_paused = False
         self._debug = False
 
     def start(self, config_provider, on_trigger):
@@ -193,7 +209,14 @@ class PassiveListener:
                 pl_cfg = cfg.get("passive_listening", {})
                 self._debug = bool(pl_cfg.get("debug_rms"))
                 if not pl_cfg.get("enabled", False) or self._is_paused():
+                    self._was_paused = True
                     continue
+                if self._was_paused:
+                    # o reconhecedor guardava o comeco de uma frase de antes da pausa (o Live
+                    # estava ouvindo): recomeca limpo
+                    self._was_paused = False
+                    if self._phrase_spotter is not None:
+                        self._phrase_spotter.reset()
 
                 rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
 
@@ -207,6 +230,7 @@ class PassiveListener:
 
                 self._process_clap(pl_cfg.get("clap_detection", {}), rms)
                 self._process_wake_word(pl_cfg.get("wake_word", {}), chunk)
+                self._process_phrases(cfg.get("live") or {}, chunk)
         finally:
             mgr.unsubscribe(q)
             if self._wake_word_detector is not None:
@@ -250,6 +274,53 @@ class PassiveListener:
             )
             self._wake_word_cfg_snapshot = snapshot
         self._wake_word_detector.feed(chunk)
+
+    def _process_phrases(self, live_cfg: dict, chunk):
+        """Frases de ativacao do Live ("e ai oculos", "hey computador", "sankofa"...) com o app
+        aberto e o Live parado: o mesmo detector local da pausa do Live (Vosk, nada vai pra nuvem).
+        O openWakeWord acima so conhece "hey jarvis"."""
+        if not live_cfg.get("wake_starts_live", True):
+            self._phrase_spotter = self._phrase_snapshot = None
+            return
+        import json
+        import live_agent
+        import wake_spotter
+        # so as frases de CHAMAR: "pode continuar"/"voltei" aparecem em qualquer conversa e
+        # ligariam o Live sozinhas -- elas valem so pra sair da pausa (detector do live_agent)
+        phrases = [ph for ph in (live_cfg.get("wake_phrases") or live_agent.DEFAULT_WAKE_PHRASES)
+                   if wake_spotter.normalize(ph) not in RESUME_ONLY]
+        aliases = live_cfg.get("wake_aliases") or live_agent.DEFAULT_WAKE_ALIASES
+        snapshot = (tuple(phrases), json.dumps(aliases, sort_keys=True))
+        if self._phrase_spotter is None or self._phrase_snapshot != snapshot:
+            try:
+                self._phrase_spotter = wake_spotter.WakeSpotter(phrases, aliases)
+            except Exception as e:  # modelo Vosk ausente: fica so o "hey jarvis"
+                print(f"[passive_listener] frases de ativacao indisponiveis: {e}", flush=True)
+                self._phrase_snapshot = snapshot
+                self._phrase_spotter = None
+                return
+            self._phrase_snapshot = snapshot
+        rms = float(np.sqrt(np.mean(chunk.astype(np.float64) ** 2)))
+        now = time.monotonic()
+        voiced = rms > max(VOICE_MIN_RMS, self._noise_floor * VOICE_OVER_NOISE)
+        if not voiced:
+            self._noise_floor += (rms - self._noise_floor) * 0.02  # acompanha o ruido de fundo
+        if now >= self._voice_until:
+            if not voiced:
+                self._preroll.append(chunk)
+                return
+            pending = list(self._preroll) + [chunk]  # comecou a falar: entra com o pre-roll
+            self._preroll.clear()
+        else:
+            pending = [chunk]
+        if voiced:
+            self._voice_until = now + VOICE_HANGOVER_S  # segue ouvindo o silencio que fecha a frase
+        for c in pending:
+            hit = self._phrase_spotter.feed(c.tobytes())
+            if hit:
+                self._voice_until = 0.0
+                self._fire("wake_phrase", f"frase de ativacao: {hit}")
+                return
 
     def _fire(self, gesture_key: str, note: str):
         if self._on_trigger is not None:

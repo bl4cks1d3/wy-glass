@@ -21,6 +21,8 @@ SAMPLE_RATE = 16000
 MATCH_RATIO = 0.82
 WORD_RATIO = 0.72  # cada palavra: tolera pronuncia ("oculos"/"ocullos"), nao troca de palavra ("o"/"hey")
 
+_CALL_WORDS = {"e", "ei", "hey", "hei", "oi", "ai", "ow"}
+
 _model = None
 
 
@@ -82,16 +84,39 @@ class WakeSpotter:
     def feed(self, pcm16: bytes) -> str | None:
         """Alimenta um bloco PCM 16 kHz mono int16. Devolve a frase reconhecida, ou None. Usa o
         resultado parcial: a ativacao dispara enquanto a frase ainda esta sendo dita."""
-        if self._rec.AcceptWaveform(pcm16):
+        final = self._rec.AcceptWaveform(pcm16)
+        if final:
             text = json.loads(self._rec.Result()).get("text", "")
         else:
             text = json.loads(self._rec.PartialResult()).get("partial", "")
-        if not text or text == self.last_text:
+        if not text:
+            return None
+        if final:
+            hit = self._short_utterance(text)
+            if hit:
+                self.reset()
+                return hit
+        if text == self.last_text:
             return None
         self.last_text = text
         for original, variant in self.variants:
             if contains_phrase(text, variant):
                 self.reset()
+                return original
+        return None
+
+    def _short_utterance(self, text: str) -> str | None:
+        """Fala curta e ja finalizada (ate 2 palavras) que termina na palavra marcante de uma frase
+        de ativacao: "hey computador" chega como "computador" -- o Vosk pequeno perde o "hey" do
+        comeco. So na fala inteira e curta: "o computador travou" continua nao acordando."""
+        words = normalize(text).split()
+        # a palavra sozinha, ou com uma interjeicao de chamada antes ("e computador"); "meu
+        # computador" nao chama ninguem
+        if not (len(words) == 1 or (len(words) == 2 and words[0] in _CALL_WORDS)):
+            return None
+        for original, variant in self.variants:
+            key = normalize(variant).split()
+            if len(key) >= 2 and len(key[-1]) >= 5 and                     difflib.SequenceMatcher(None, words[-1], key[-1]).ratio() >= 0.85:
                 return original
         return None
 
